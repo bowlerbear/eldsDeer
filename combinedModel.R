@@ -167,7 +167,6 @@ cat("
     
     for (i in 1:n.Detections){
     
-    # Transect + T
     mu.gs[i] <- exp(b.gs.0 + random.gs.site[d.Site[i]])
     d.Groupsize[i] ~ dpois(mu.gs[i])
     }
