@@ -6,7 +6,7 @@
 #############################################################
 
 #get the formatted line transect data file
-source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/GitFiles/formatLineTransect_forBUGS.R')
+source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eldsDeer/formatLineTransect_forBUGS.R')
 #this leads to the creation of "datafile"
 
 #Notes:
@@ -57,14 +57,16 @@ library(lattice)
 histogram(detectionInfo$Distance)
 
 #potential covariates for the process(P) and the detection (D) model
+datafile$Region<-ifelse(datafile$Region=="Blue",0,1)
 datafile$Observer<-paste(datafile$Year,datafile$Transect)
-covarsP<-as.matrix(datafile[,c("Obs","T","Yellow","Transect","GroupSize")])
+covarsP<-as.matrix(datafile[,c("Obs","T","Region","Transect","GroupSize")])
 covarsD<-covarsP[covarsP[,1]==1,]
 
 #TransectYears used in the model
 transectInfo<-unique(datafile[,c("Transect","T")])
 transectYears<-unique(transectInfo[,"T"])
 transectTransect<-unique(transectInfo[,"Transect"])
+transectRegion<-ifelse(transectTransect<7,0,1)
 
 #index all data points by transect and year for use in the model
 datafileObs<-subset(datafile,Obs==1)
@@ -75,6 +77,13 @@ for(i in 1:nrow(datafileObs)){
     datafile$Transect[i]==transectInfo$Transect)]<-1
 }
 
+#look at trends in the data
+nuGroups<-ddply(datafile,.(Year,Transect),summarise,nuGroups=sum(Obs))
+avGroups<-ddply(datafile,.(Year,Transect),summarise,meanGroupSize=mean(GroupSize))
+qplot(Year,nuGroups,data=nuGroups)+facet_wrap(~Transect)
+qplot(Year,meanGroupSize,data=avGroups)+facet_wrap(~Transect)
+totalIndiv<-ddply(datafile,.(Year,Transect),summarise,total=sum(GroupSize))
+qplot(Year,total,data=totalIndiv)+facet_wrap(~Transect)
 
 #compile data
 bugs.data<-list(nTransect = length(unique(datafile$Transect)), 
@@ -82,7 +91,6 @@ bugs.data<-list(nTransect = length(unique(datafile$Transect)),
             W = 250,
             L = transectDistances,
             n = groupInfo,
-            groupSizes = groupSizes,
             N = nrow(detectionInfo),
             y = detectionInfo$Distance,
             gs = detectionInfo$GroupSize,
@@ -90,7 +98,7 @@ bugs.data<-list(nTransect = length(unique(datafile$Transect)),
             covarsD = covarsD,
             nTransectYrs = nrow(transectInfo),
             transectYears = transectYears,
-            transectTransect = transectTransect,
+            transectRegion = transectRegion,
             ty.combos = transectInfo,
             TransYrIdx = TransYrIdx,
             zeros.dist = rep(0,nrow(detectionInfo)))
@@ -112,8 +120,6 @@ model{
   
   # fixed effects for region and group size
   b.df.GroupSize ~ dnorm(0,0.0001) #effect of group size on detection
-  #transect efffect 
-  #b.df.Transect ~ dnorm(0,0.001)
 
   ##### Begin model for *all detections*
   
@@ -148,12 +154,7 @@ model{
     for(i in 1:N){
     grp.ESW[i,k] <- esw[i] * TransYrIdx[i,k]
     }
-    ESW[k] <- sum(grp.ESW[,k])  
-    }
-    
-    #convert into an [j,t] array
-    for(k in 1:nTransectYrs){
-    ESW.JT[ty.combos[k,1], ty.combos[k,2]] <- ESW[k]/max(1,sum(TransYrIdx[,k]))
+    ESW.JT[ty.combos[k,1], ty.combos[k,2]] <- sum(grp.ESW[,k]) /max(1,sum(TransYrIdx[,k]))
     }
     
 
@@ -162,17 +163,23 @@ model{
   #####
   ##### PRIORS
   
-  #intercept
-  B.gs.0 ~ dnorm(0, 0.00001)
+    #intercept
+    B.gs.0 ~ dnorm(0, 0.00001)
   
-  #fixed effects
-  B.gs.Transect ~ dnorm(0,0.00001)
-  B.gs.T ~ dnorm(0,0.00001) # time trend coefficient
-  B.gs.Transect.T ~ dnorm(0,0.00001) #interaction between time and region coefficient
+    #fixed effects
+    B.gs.Region ~ dnorm(0,0.00001)
+    B.gs.T ~ dnorm(0,0.00001) # time trend coefficient
+    B.gs.Region.T ~ dnorm(0,0.00001) #interaction between time and region coefficient
 
+    #random transect effects
+    sd.gs.trans ~ dunif(0,10)
+    tau.gs.trans <- pow(sd.gs.trans,-2)
+    for(i in 1:nTransect){
+    random.gs.trans[i] ~ dnorm(0,tau.gs.trans)
+    }
 
     #random effects
-    sd.gs.time ~ dunif(0,3)
+    sd.gs.time ~ dunif(0,19)
     tau.gs.time <- pow(sd.gs.time,-2)
     for(t in 1:nYrs){
     random.gs.time[t] ~ dnorm(0,tau.gs.time)
@@ -183,9 +190,8 @@ model{
   for (i in 1:N){
     
     # Transect + T
-    mu.gs[i] <- exp(B.gs.0 + B.gs.T*covarsP[i,2] + B.gs.Transect*covarsP[i,4] +
-    B.gs.Transect.T*covarsP[i,2]*covarsP[i,4]+random.gs.time[covarsP[i,2]]) 
-    #mu.gs[i] <- exp(B.gs.0+random.time[covarsP[i,2]]) 
+    mu.gs[i] <- exp(B.gs.0 + B.gs.T*covarsP[i,2] + B.gs.Region*covarsP[i,3] +
+    B.gs.Region.T*covarsP[i,2]*covarsP[i,3]+random.gs.time[covarsP[i,2]]+random.gs.trans[covarsP[i,4]]) 
     gs[i] ~ dpois(mu.gs[i])
                       
   }
@@ -213,16 +219,22 @@ model{
             
   #fixed effects        
   B.n.T ~ dnorm(0,0.00001) # time trend coefficient
-  B.n.Transect ~ dnorm(0,0.00001) # region coefficient
-  B.n.Transect.T ~ dnorm(0,0.00001) #interaction coefficient between time and region
+  B.n.Region ~ dnorm(0,0.00001) # region coefficient
+  B.n.Region.T ~ dnorm(0,0.00001) #interaction coefficient between time and region
     
+  #random transect effects
+  sd.trans ~ dunif(0,10)
+  tau.trans <- pow(sd.trans,-2)
+  for(j in 1:nTransect){
+    random.trans[j] ~ dnorm(0,tau.trans)
+  }
 
   #random effects
-  sd.time ~ dunif(0,3)
-  tau.time <- pow(sd.time,-2)
-  for(t in 1:nYrs){
+  sd.time ~ dunif(0,10)
+    tau.time <- pow(sd.time,-2)
+    for(t in 1:nYrs){
     random.time[t] ~ dnorm(0,tau.time)
-    }
+  }
 
   for (j in 1:nTransect){
    for (t in 1:nYrs){
@@ -233,9 +245,9 @@ model{
 
     #density of groups           
     nHat[j,t] <- exp(B.n.0 + B.n.T*transectYears[t] + 
-              B.n.Transect*transectTransect[j]+
-              B.n.Transect.T*transectYears[t]*transectTransect[j]+
-              random.time[t])
+              B.n.Region*transectRegion[j]+
+              B.n.Region.T*transectYears[t]*transectRegion[j]+
+              random.time[t]+random.trans[j])
 
    }
   }
@@ -254,8 +266,8 @@ model{
 
   source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
   
-  params <- c("b.df.GroupSize","sig.df","b.df.0","B.gs.0","B.n.0","B.gs.T","B.gs.Transect","B.gs.Transect.T",
-              "B.n.T","B.n.Transect","B.n.Transect.T","D.ty","Dtot")
+  params <- c("b.df.GroupSize","b.df.0","B.gs.0","B.n.0","B.gs.T","B.gs.Region","B.gs.Region.T",
+              "B.n.T","B.n.Region","B.n.Region.T","D.ty","Dtot")
   
   inits <- function(){list(b.df.0 = runif(1,2,5), 
                            B.gs.0 = runif(1,0.2,3),
@@ -278,17 +290,18 @@ model{
   #(1) get the predictions of densities per transect and time
   expectedDensities<-out1$summary
   expectedDensities<-data.frame(expectedDensities[grepl("D.ty",row.names(expectedDensities)),])
-  expectedDensities$Transect<-rep(1:16,18)
-  expectedDensities$Year<-rep(1:18,each=16)
+  expectedDensities$Transect<-rep(1:16,20)
+  expectedDensities$Year<-rep(1:20,each=16)
   
   #plotting
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
+  
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.,colour=Transect))
   
-  #(2) get the predictions of densities pertime
+  #(2) get the predictions of densities per time
   expectedDensities<-out1$summary
   expectedDensities<-data.frame(expectedDensities[grepl("Dtot",row.names(expectedDensities)),])
-  expectedDensities$Year<-1998:2015
+  expectedDensities$Year<-1998:2017
   
   #plotting
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+theme_bw()
