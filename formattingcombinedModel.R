@@ -1,7 +1,7 @@
 #################################################################################
 
 #run file to retreive and begin formatting the observations of deer in the camera trapping
-source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/GitFiles/formattingCameratraps.R')
+source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eldsDeer/formattingCameratraps.R')
 
 #################################################################################
 
@@ -343,8 +343,6 @@ gridTranslate$Transect<-1:nrow(gridTranslate)
 #scale vars
 datafile$Transect<-gridTranslate$Transect[match(datafile$Grid,gridTranslate$Grid)]
 datafile$T<-datafile$Year-min(datafile$Year)+1
-#change 2017 to 2016
-datafile$T[which(datafile$T==5)]<-4
 
 #get info on transect lengths for each year and transect
 #transectDistances<-acast(datafile,Transect~T,value.var="TransectDist",fun=max)

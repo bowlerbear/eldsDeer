@@ -1,6 +1,6 @@
 #################################################################################
 
-source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/GitFiles/formattingcombinedModel.R')
+source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eldsDeer/formattingcombinedModel.R')
 
 ######################################################################################
 
@@ -42,6 +42,7 @@ bugs.data<-list(#camera trap data
                 Water=waterMatrix,
                 Month=monthMatrix)
 
+setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 sink("combinedModel.txt")
 cat("
     model {
