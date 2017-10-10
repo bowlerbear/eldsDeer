@@ -18,6 +18,12 @@ datafile$Transect<-gsub("A","",datafile$Transect)
 datafile$Transect<-gsub("B","",datafile$Transect)
 datafile$Transect<-as.numeric(datafile$Transect)
 
+#get transect lengths for each year - sum them across A and B part transects
+transectDistDF<-unique(datafile[,c("Year","Transect","TransectDist")])
+transectDistDF<-ddply(transectDistDF,.(Year,Transect),summarise,TransectDist=sum(TransectDist))
+datafile$TransectDist<-transectDistDF$TransectDist[match(interaction(datafile$Year,datafile$Transect),
+                                                         interaction(transectDistDF$Year,transectDistDF$Transect))]
+  
 #simplify region and year
 datafile$Region[datafile$Transect%in%c(1:6)]<-"Blue"
 datafile$Region[datafile$Transect%in%c(7:16)]<-"Yellow"
