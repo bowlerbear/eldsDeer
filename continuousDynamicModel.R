@@ -77,14 +77,6 @@ for(i in 1:nrow(datafileObs)){
     datafile$Transect[i]==transectInfo$Transect)]<-1
 }
 
-#look at trends in the data
-nuGroups<-ddply(datafile,.(Year,Transect),summarise,nuGroups=sum(Obs))
-avGroups<-ddply(datafile,.(Year,Transect),summarise,meanGroupSize=mean(GroupSize))
-qplot(Year,nuGroups,data=nuGroups)+facet_wrap(~Transect)
-qplot(Year,meanGroupSize,data=avGroups)+facet_wrap(~Transect)
-totalIndiv<-ddply(datafile,.(Year,Transect),summarise,total=sum(GroupSize))
-qplot(Year,total,data=totalIndiv)+facet_wrap(~Transect)
-
 #compile data
 bugs.data<-list(nTransect = length(unique(datafile$Transect)), 
             nYrs = length(unique(datafile$T)),
@@ -96,11 +88,12 @@ bugs.data<-list(nTransect = length(unique(datafile$Transect)),
             gs = detectionInfo$GroupSize,
             covarsP = covarsP,
             covarsD = covarsD,
-            nTransectYrs = nrow(transectInfo),
+            #nTransectYrs = nrow(transectInfo),
             transectYears = transectYears,
             transectRegion = transectRegion,
-            ty.combos = transectInfo,
-            TransYrIdx = TransYrIdx,
+            transectTransect = transectTransect,
+            #ty.combos = transectInfo,
+            #TransYrIdx = TransYrIdx,
             zeros.dist = rep(0,nrow(detectionInfo)))
 
 #run model
@@ -112,8 +105,7 @@ model{
   ##### PRIORS
   
   pi <- 3.141593
-  a <- 0.147
-  
+
   # priors for fixed effect parms for half-normal detection parm sigma
   # intercept
   b.df.0 ~ dunif(0,20)        
@@ -123,11 +115,12 @@ model{
 
   ##### Begin model for *all detections*
   
+  #add NAs for when we don't have detection data at a particular site and year
+
   for( i in 1:N){
     
     ##########
     #MODELS FOR HALF-NORMAL DETECTION PARAMETER SIGMA
-    #mu.df[i] <- b.df.0 + b.df.GroupSize*covarsD[i,5]+b.df.Transect*covarsD[i,4]#no evidence for a transect effect after accouting for group size
     mu.df[i] <- b.df.0 + b.df.GroupSize*covarsD[i,5]
 
     ##########
@@ -136,27 +129,25 @@ model{
     sig2.df[i] <- sig.df[i]*sig.df[i]
     
     # effective strip width
-    x[i] <- W/sqrt(2*sig2.df[i])   
-    erf[i] <- sqrt(1-exp(-x[i]*x[i]*(4/pi + a*x[i]*x[i])/(1 + a*x[i]*x[i])))
-    esw[i] <- sqrt(pi * sig2.df[i] / 2)  * erf[i]
+    esw[i] <- sqrt(pi * sig2.df[i] / 2)
     f0[i] <- 1/esw[i] #assuming all detected on the line
     
     # LIKELIHOOD
     # using zeros trick
-    y[i] ~ dunif(0,W) 
+    y[i] ~ dunif(0,W)
     L.f0[i] <- exp(-y[i]*y[i] / (2*sig2.df[i])) * 1/esw[i] #y are the distances
     nlogL.f0[i] <-  -log(L.f0[i])
     zeros.dist[i] ~ dpois(nlogL.f0[i])
   }
  
-  #get average esw per transect and year
-  for(k in 1:nTransectYrs){
-    for(i in 1:N){
-    grp.ESW[i,k] <- esw[i] * TransYrIdx[i,k]
+  #Predict effective strip width for all sites (even without detection data)
+  for (j in 1:nTransect){
+    for (t in 1:nYrs){
+    pred.sig[j,t] <- exp(b.df.0 + b.df.GroupSize*pred.gs[j,t])
+    pred.sig2[j,t] <- pow(pred.sig[j,t],2)
+    ESW.JT[j,t] <- sqrt(pi * pred.sig2[j,t] / 2)
     }
-    ESW.JT[ty.combos[k,1], ty.combos[k,2]] <- sum(grp.ESW[,k]) /max(1,sum(TransYrIdx[,k]))
-    }
-    
+  }
 
   ######
   # MODEL GROUP SIZE FOR EACH GROUP DETECTED
@@ -175,38 +166,38 @@ model{
     sd.gs.trans ~ dunif(0,10)
     tau.gs.trans <- pow(sd.gs.trans,-2)
     for(i in 1:nTransect){
-    random.gs.trans[i] ~ dnorm(0,tau.gs.trans)
+      random.gs.trans[i] ~ dnorm(0,tau.gs.trans)
     }
 
-    #random effects
+    #random transect time slopes
+    #sd.gs.transtime ~ dunif(0,19)
+    #tau.gs.transtime <- pow(sd.gs.transtime,-2)
+    #for(j in 1:nTransect){
+    #  random.gs.transtime[j] ~ dnorm(0,tau.gs.transtime)
+    #}
+
+    #random time effects
     sd.gs.time ~ dunif(0,19)
     tau.gs.time <- pow(sd.gs.time,-2)
     for(t in 1:nYrs){
-    random.gs.time[t] ~ dnorm(0,tau.gs.time)
+      random.gs.time[t] ~ dnorm(0,tau.gs.time)
     }
 
   ##### Begin model for all detections
 
   for (i in 1:N){
-    
-    # Transect + T
+    #fit model
     mu.gs[i] <- exp(B.gs.0 + B.gs.T*covarsP[i,2] + B.gs.Region*covarsP[i,3] +
-    B.gs.Region.T*covarsP[i,2]*covarsP[i,3]+random.gs.time[covarsP[i,2]]+random.gs.trans[covarsP[i,4]]) 
+    B.gs.Region.T*covarsP[i,2]*covarsP[i,3] + random.gs.time[covarsP[i,2]] +random.gs.trans[covarsP[i,4]]) 
     gs[i] ~ dpois(mu.gs[i])
-                      
   }
 
-  #get average group size per transect and year
-  for(k in 1:nTransectYrs){
-    for(i in 1:N){
-    grpSize[i,k] <- mu.gs[i] * TransYrIdx[i,k]
+  #get predicted group size for all years and transects
+  for (j in 1:nTransect){
+    for (t in 1:nYrs){
+      pred.gs[j,t]<-exp(B.gs.0 + B.gs.T*transectYears[t] + B.gs.Region*transectRegion[j] +
+      B.gs.Region.T*transectRegion[j]*transectYears[t]+random.gs.trans[j]+random.gs.time[t]) 
     }
-    Es[k] <- sum(grpSize[,k])  
-  }
-
-  #convert into an [j,t] array
-  for(k in 1:nTransectYrs){
-    Es.gs[ty.combos[k,1], ty.combos[k,2]] <- Es[k]/max(1,sum(TransYrIdx[,k]))
   }
 
   ######
@@ -241,22 +232,21 @@ model{
              
     # Poisson model to observed data   
     n[j,t] ~ dpois(nHat[j,t])
-
+    EffectiveArea [j,t] <- (L[j,t]/1000) * (ESW.JT[j,t]/1000) * 2
+    nHat[j,t] <- Density[j,t] * EffectiveArea[j,t]
 
     #density of groups           
-    nHat[j,t] <- exp(B.n.0 + B.n.T*transectYears[t] + 
+    log(Density[j,t]) <- B.n.0 + B.n.T*transectYears[t] + 
               B.n.Region*transectRegion[j]+
               B.n.Region.T*transectYears[t]*transectRegion[j]+
-              random.time[t]+random.trans[j])
-
+              random.time[t]+random.trans[j]
    }
   }
 
   #Model overall density  
   for (t in 1:nYrs){  
     for (j in 1:nTransect){
-      D.ty[j,t] <- (Es.gs[j,t]*nHat[j,t])/(max(0.00001,(2*L[j,t]*ESW.JT[j,t])/1000))
-      #Ddata[j,t] <- (groupSizes[j,t]*n[j,t])/(max(0.00001,(2*L[j,t]*ESW.JT[j,t])/1000))
+      D.ty[j,t] <- (Density[j,t]*pred.gs[j,t])
     }
     Dtot[t] <- mean(D.ty[,t])
   }
@@ -266,8 +256,7 @@ model{
 
   source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
   
-  params <- c("b.df.GroupSize","b.df.0","B.gs.0","B.n.0","B.gs.T","B.gs.Region","B.gs.Region.T",
-              "B.n.T","B.n.Region","B.n.Region.T","D.ty","Dtot")
+  params <- c("b.df.GroupSize","b.df.0","B.gs.0","B.n.0","B.gs.T","B.gs.Region","B.gs.Region.T","B.n.T","B.n.Region","B.n.Region.T","Density","D.ty","Dtot","pred.gs")
   
   inits <- function(){list(b.df.0 = runif(1,2,5), 
                            B.gs.0 = runif(1,0.2,3),
@@ -277,9 +266,6 @@ model{
                n.chains=nc, n.burnin=nb,n.iter=ni)
   
   print(out1,2)
-  
-  #sigma is about 80
-  #average densities are
   
   #############################################################################################
   
@@ -296,8 +282,6 @@ model{
   #plotting
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
   
-  ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.,colour=Transect))
-  
   #(2) get the predictions of densities per time
   expectedDensities<-out1$summary
   expectedDensities<-data.frame(expectedDensities[grepl("Dtot",row.names(expectedDensities)),])
@@ -305,7 +289,44 @@ model{
   
   #plotting
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+theme_bw()
-  #between 0.003 and 0.005
+  
+  #(3) get the predictions of densities (number of groups) per time and transect
+  expectedDensities<-out1$summary
+  expectedDensities<-data.frame(expectedDensities[grepl("Density",row.names(expectedDensities)),])
+  expectedDensities$Transect<-rep(1:16,20)
+  expectedDensities$Year<-rep(1:20,each=16)
+  
+  #plotting
+  ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
+  
+  #(4) get the predictions of average group size per time and transect
+  expectedDensities<-out1$summary
+  expectedDensities<-data.frame(expectedDensities[grepl("pred.gs",row.names(expectedDensities)),])
+  expectedDensities$Transect<-rep(1:16,20)
+  expectedDensities$Year<-rep(1:20,each=16)
+  
+  #plotting
+  ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
+  
+  ggplot(expectedDensities)+geom_point(aes(x=Year,y=mean))+facet_wrap(~Transect,scales="free")
   
   ##############################################################################################
+  
+  #######################
+  #Plotting the data#####
+  #######################
+  
+  #number of groups
+  nuGroups<-ddply(datafile,.(Year,Transect),summarise,nuGroups=sum(Obs))
+  qplot(Year,nuGroups,data=nuGroups)+facet_wrap(~Transect)
+  
+  #average group size
+  avGroups<-ddply(datafile,.(Year,Transect),summarise,meanGroupSize=mean(GroupSize))
+  qplot(Year,meanGroupSize,data=avGroups)+facet_wrap(~Transect)
+  
+  #total individuals
+  totalIndiv<-ddply(datafile,.(Year,Transect),summarise,total=sum(GroupSize))
+  qplot(Year,total,data=totalIndiv)+facet_wrap(~Transect)
+  
+  ################################################################################################
   
