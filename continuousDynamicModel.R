@@ -242,13 +242,14 @@ model{
     # Poisson model to observed data   
     n[j,t] ~ dpois(nHat[j,t])
     EffectiveArea [j,t] <- (L[j,t]/1000) * (ESW.JT[j,t]/1000) * 2
-    nHat[j,t] <- Density[j,t] * EffectiveArea[j,t]
+    nHat[j,t] <- Density[j,t] * EffectiveArea [j,t]
 
     #density of groups           
     log(Density[j,t]) <- B.n.0 + B.n.T*transectYears[t] + 
               B.n.Region*transectRegion[j]+
               B.n.Region.T*transectYears[t]*transectRegion[j]+
-              random.time[t]+random.trans[j]+
+              #random.time[t]+
+              random.trans[j]+
               random.transtime[j]*transectYears[t]
    }
   }
@@ -262,10 +263,10 @@ model{
   }
   
   #aggregate over regions
-  transectRegion1<-transectRegion+1
-  for(i in 1:2){
-    D.region[i] <- mean(D.ty[transectRegion1[i],])
-  }
+  for (t in 1:nYrs){
+          D.region[1,t] <- mean(D.ty[1:6,t])
+          D.region[2,t] <- mean(D.ty[7:16,t])
+    }
 
   }
   ",fill=TRUE,file="continuous_Dynamic.txt")
@@ -307,7 +308,16 @@ model{
   #plotting
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+theme_bw()
   
-  #(3) get the predictions of densities (number of groups) per time and transect
+  #(3) get the predictions of densities per region and time
+  expectedDensities<-out1$summary
+  expectedDensities<-data.frame(expectedDensities[grepl("D.region",row.names(expectedDensities)),])
+  expectedDensities$Transect<-rep(1:2)
+  expectedDensities$Year<-rep(1:20,each=2)
+  
+  #plotting
+  ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect)
+
+  #(4) get the predictions of densities (number of groups) per time and transect
   expectedDensities<-out1$summary
   expectedDensities<-data.frame(expectedDensities[grepl("Density",row.names(expectedDensities)),])
   expectedDensities$Transect<-rep(1:16,20)
@@ -315,8 +325,9 @@ model{
   
   #plotting
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
+  ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect)
   
-  #(4) get the predictions of average group size per time and transect
+  #(5) get the predictions of average group size per time and transect
   expectedDensities<-out1$summary
   expectedDensities<-data.frame(expectedDensities[grepl("pred.gs",row.names(expectedDensities)),])
   expectedDensities$Transect<-rep(1:16,20)
