@@ -170,25 +170,26 @@ model{
     }
 
     #random transect time slopes
-    #sd.gs.transtime ~ dunif(0,19)
-    #tau.gs.transtime <- pow(sd.gs.transtime,-2)
-    #for(j in 1:nTransect){
-    #  random.gs.transtime[j] ~ dnorm(0,tau.gs.transtime)
-    #}
+    sd.gs.transtime ~ dunif(0,19)
+    tau.gs.transtime <- pow(sd.gs.transtime,-2)
+    for(j in 1:nTransect){
+      random.gs.transtime[j] ~ dnorm(0,tau.gs.transtime)
+    }
 
     #random time effects
-    sd.gs.time ~ dunif(0,19)
-    tau.gs.time <- pow(sd.gs.time,-2)
-    for(t in 1:nYrs){
-      random.gs.time[t] ~ dnorm(0,tau.gs.time)
-    }
+    #sd.gs.time ~ dunif(0,19)
+    #tau.gs.time <- pow(sd.gs.time,-2)
+    #for(t in 1:nYrs){
+    #  random.gs.time[t] ~ dnorm(0,tau.gs.time)
+    #}
 
   ##### Begin model for all detections
 
   for (i in 1:N){
     #fit model
     mu.gs[i] <- exp(B.gs.0 + B.gs.T*covarsP[i,2] + B.gs.Region*covarsP[i,3] +
-    B.gs.Region.T*covarsP[i,2]*covarsP[i,3] + random.gs.time[covarsP[i,2]] +random.gs.trans[covarsP[i,4]]) 
+    B.gs.Region.T*covarsP[i,2]*covarsP[i,3] +random.gs.trans[covarsP[i,4]]+
+    covarsP[i,2]*random.gs.transtime[covarsP[i,4]]) 
     gs[i] ~ dpois(mu.gs[i])
   }
 
@@ -196,7 +197,8 @@ model{
   for (j in 1:nTransect){
     for (t in 1:nYrs){
       pred.gs[j,t]<-exp(B.gs.0 + B.gs.T*transectYears[t] + B.gs.Region*transectRegion[j] +
-      B.gs.Region.T*transectRegion[j]*transectYears[t]+random.gs.trans[j]+random.gs.time[t]) 
+      B.gs.Region.T*transectRegion[j]*transectYears[t]+random.gs.trans[j]+
+      random.gs.transtime[j]*transectYears[t]) 
     }
   }
 
@@ -225,7 +227,14 @@ model{
     tau.time <- pow(sd.time,-2)
     for(t in 1:nYrs){
     random.time[t] ~ dnorm(0,tau.time)
-  }
+    }
+
+  #random transect slopes
+    sd.transtime ~ dunif(0,10)
+    tau.transtime <- pow(sd.trans,-2)
+    for(j in 1:nTransect){
+    random.transtime[j] ~ dnorm(0,tau.transtime)
+    }
 
   for (j in 1:nTransect){
    for (t in 1:nYrs){
@@ -239,7 +248,8 @@ model{
     log(Density[j,t]) <- B.n.0 + B.n.T*transectYears[t] + 
               B.n.Region*transectRegion[j]+
               B.n.Region.T*transectYears[t]*transectRegion[j]+
-              random.time[t]+random.trans[j]
+              random.time[t]+random.trans[j]+
+              random.transtime[j]*transectYears[t]
    }
   }
 
@@ -251,12 +261,19 @@ model{
     Dtot[t] <- mean(D.ty[,t])
   }
   
+  #aggregate over regions
+  transectRegion1<-transectRegion+1
+  for(i in 1:2){
+    D.region[i] <- mean(D.ty[transectRegion1[i],])
+  }
+
   }
   ",fill=TRUE,file="continuous_Dynamic.txt")
 
   source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
   
-  params <- c("b.df.GroupSize","b.df.0","B.gs.0","B.n.0","B.gs.T","B.gs.Region","B.gs.Region.T","B.n.T","B.n.Region","B.n.Region.T","Density","D.ty","Dtot","pred.gs")
+  params <- c("b.df.GroupSize","b.df.0","B.gs.0","B.n.0","B.gs.T","B.gs.Region","B.gs.Region.T","B.n.T",
+              "B.n.Region","B.n.Region.T","Density","D.ty","Dtot","D.region","pred.gs")
   
   inits <- function(){list(b.df.0 = runif(1,2,5), 
                            B.gs.0 = runif(1,0.2,3),
