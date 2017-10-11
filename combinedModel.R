@@ -57,7 +57,8 @@ cat("
 
     #Model of factors affecting abundance
     for (i in 1:n.sites) { #across all sites   
-      abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + beta.forest2 * Forest2[i] + beta.villages * Villages[i]
+      abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + beta.forest2 * Forest2[i] + 
+                          beta.villages * Villages[i]
     }
 
     #Different observation models depending on the data:
@@ -207,6 +208,9 @@ cat("
       Density[i] <- exp(abund.effect[i] + intercept.lt)*exp(b.gs.0)
     }
 
+    #get predicted average density across whole area
+    avDensity <- mean(Density)
+
     }
     ",fill = TRUE)
 sink()
@@ -217,8 +221,7 @@ zst.ct <- apply(y, 1, max, na.rm=T)
 ast <-apply(y,c(1,2),max,na.rm=T)
 ast[is.infinite(ast)]<-0
 
-params <- c("b.gs.0","averagePa","beta.forest","beta.military","theta.water","beta.forest2","beta.villages",
-            "b.gs.forestcover","b.gs.military","b.d.GroupSize","b.d.Forest","Density")
+params <- c("b.gs.0","averagePa","beta.forest","beta.military","beta.forest2","beta.villages","avDensity","Density")
 
 inits <- function(){list(z.ct = zst.ct,
                          a = ast,
@@ -235,18 +238,26 @@ traceplot(out1)
 
 #Plotting predictions
 
+setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment")
 myGridDF3km$fits<-out1$mean$Density
 myGridDF$fits<-myGridDF3km$fits[match(myGridDF$Grid3km,myGridDF3km$Grid3km)]
 out<-subset(myGridDF,!is.na(fits))
 summary(out$fits)
 predRaster<-rasterFromXYZ(out[,c("x","y","fits")])
 predRaster<-mask(predRaster,sws)
+png(file="combinedModel.png")
 plot(predRaster)
 plot(sws,add=T)
+dev.off()
 
 #get total number of predicted deer
 out2<-subset(out,!duplicated(Grid3km))
-sum(out2$fits)#1242.344
+sum(out2$fits)#1273.681
+
+#pulling out all coeffients of interest
+coefTable<-data.frame(out1$summary)
+coefTable$Parameter<-row.names(out1$summary)
+save(coefTable,file="coefTable_combinedModel.RData")
 
 #########################################################################################
 
