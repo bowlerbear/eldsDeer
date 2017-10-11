@@ -60,13 +60,13 @@ histogram(detectionInfo$Distance)
 #potential covariates for the process(P) and the detection (D) model
 datafile$Region<-ifelse(datafile$Region=="Blue",0,1)
 datafile$Observer<-paste(datafile$Year,datafile$Transect)
-covarsP<-as.matrix(datafile[,c("Obs","T","Region","Transect","GroupSize")])
+covarsP<-datafile[,c("Obs","T","Region","Transect","GroupSize")]
 covarsD<-covarsP[covarsP[,1]==1,]
 
 #TransectYears used in the model
 transectInfo<-unique(datafile[,c("Transect","T")])
-transectYears<-unique(transectInfo[,"T"])
-transectTransect<-unique(transectInfo[,"Transect"])
+transectYears<-sort(unique(transectInfo[,"T"]))
+transectTransect<-sort(unique(transectInfo[,"Transect"]))
 transectRegion<-ifelse(transectTransect<7,0,1)
 
 #index all data points by transect and year for use in the model
@@ -187,18 +187,26 @@ model{
 
   for (i in 1:N){
     #fit model
-    mu.gs[i] <- exp(B.gs.0 + B.gs.T*covarsP[i,2] + B.gs.Region*covarsP[i,3] +
-    B.gs.Region.T*covarsP[i,2]*covarsP[i,3] +random.gs.trans[covarsP[i,4]]+
-    covarsP[i,2]*random.gs.transtime[covarsP[i,4]]) 
+    mu.gs[i] <- exp(B.gs.0 + 
+    B.gs.T*covarsP[i,2]+
+    random.gs.trans[covarsP[i,4]]+
+    covarsP[i,2]*random.gs.transtime[covarsP[i,4]]+
+    B.gs.Region*covarsP[i,3] +
+    B.gs.Region.T*covarsP[i,2]*covarsP[i,3])
+    
+    #specify distribution
     gs[i] ~ dpois(mu.gs[i])
   }
 
   #get predicted group size for all years and transects
   for (j in 1:nTransect){
     for (t in 1:nYrs){
-      pred.gs[j,t]<-exp(B.gs.0 + B.gs.T*transectYears[t] + B.gs.Region*transectRegion[j] +
-      B.gs.Region.T*transectRegion[j]*transectYears[t]+random.gs.trans[j]+
-      random.gs.transtime[j]*transectYears[t]) 
+      pred.gs[j,t]<-exp(B.gs.0 + 
+      B.gs.T*transectYears[t]+
+      random.gs.trans[j]+
+      random.gs.transtime[j]*transectYears[t]+
+      B.gs.Region*transectRegion[j] +
+      B.gs.Region.T*transectRegion[j]*transectYears[t])
     }
   }
 
@@ -241,16 +249,18 @@ model{
              
     # Poisson model to observed data   
     n[j,t] ~ dpois(nHat[j,t])
+
     EffectiveArea [j,t] <- (L[j,t]/1000) * (ESW.JT[j,t]/1000) * 2
-    nHat[j,t] <- Density[j,t] * EffectiveArea [j,t]
+    nHat[j,t] <- Density[j,t] * 1
 
     #density of groups           
-    log(Density[j,t]) <- B.n.0 + B.n.T*transectYears[t] + 
-              B.n.Region*transectRegion[j]+
-              B.n.Region.T*transectYears[t]*transectRegion[j]+
-              #random.time[t]+
+    log(Density[j,t]) <- B.n.0 + 
+              B.n.T*transectYears[t] + 
               random.trans[j]+
-              random.transtime[j]*transectYears[t]
+              random.transtime[j]*transectYears[t]+
+              B.n.Region*transectRegion[j]+
+              B.n.Region.T*transectYears[t]*transectRegion[j]
+              #random.time[t]
    }
   }
 
@@ -268,12 +278,12 @@ model{
           D.region[2,t] <- mean(D.ty[7:16,t])
   }
 
-  #predictions just based on data
+  #predictions just based on obsered data and the average detection
   for (t in 1:nYrs){  
     for (j in 1:nTransect){
       Ddata.ty[j,t] <- max(0,n[j,t]*groupSizes[j,t]*EffectiveArea [j,t])
     }
-    Ddata.tot[t] <- mean(D.ty[,t])
+    Ddata.tot[t] <- mean(Ddata.ty[,t])
   }
   
   #aggregate over regions
@@ -289,7 +299,7 @@ model{
   
   params <- c("b.df.GroupSize","b.df.0","B.gs.0","B.n.0","B.gs.T","B.gs.Region","B.gs.Region.T","B.n.T",
               "B.n.Region","B.n.Region.T","Density","D.ty","D.tot","D.region","pred.gs",
-              "Ddata.ty","Ddata.tot","Ddata.region")
+              "Ddata.ty","Ddata.tot","Ddata.region","ESW.JT")
   
   inits <- function(){list(b.df.0 = runif(1,2,5), 
                            B.gs.0 = runif(1,0.2,3),
@@ -324,6 +334,7 @@ model{
   expectedDensities<-data.frame(expectedDensities[grepl("D.ty",row.names(expectedDensities)),])
   expectedDensities$Transect<-rep(1:16,20)
   expectedDensities$Year<-rep(1:20,each=16)
+  ggplot(expectedDensities)+geom_point(aes(x=Year,y=log(mean)))+facet_wrap(~Transect)
   
   #plotting
   png("transect_ts.png")
@@ -354,6 +365,7 @@ model{
   expectedDensities<-data.frame(expectedDensities[grepl("Density",row.names(expectedDensities)),])
   expectedDensities$Transect<-rep(1:16,20)
   expectedDensities$Year<-rep(1:20,each=16)
+  ggplot(expectedDensities)+geom_point(aes(x=Year,y=log(mean)))+facet_wrap(~Transect)
   
   #plotting
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
@@ -364,6 +376,7 @@ model{
   expectedDensities<-data.frame(expectedDensities[grepl("pred.gs",row.names(expectedDensities)),])
   expectedDensities$Transect<-rep(1:16,20)
   expectedDensities$Year<-rep(1:20,each=16)
+  ggplot(expectedDensities)+geom_point(aes(x=Year,y=log(mean)))+facet_wrap(~Transect)
   
   #plotting
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
@@ -406,6 +419,10 @@ model{
   #total individuals
   totalIndiv<-ddply(datafile,.(Year,Transect),summarise,total=sum(GroupSize))
   qplot(Year,total,data=totalIndiv)+facet_wrap(~Transect)
+  
+  #total individual per region
+  totalIndiv<-ddply(datafile,.(Year,Region),summarise,total=sum(GroupSize,na.rm=T))
+  qplot(Year,total,data=totalIndiv)+facet_wrap(~Region)
   
   ################################################################################################
   
