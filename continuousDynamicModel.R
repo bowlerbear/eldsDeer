@@ -301,8 +301,17 @@ model{
   
   print(out1,2)
   
-  #look at a certain parameter
+  #to look at a certain parameter
   out1$summary[grepl("pred.gs",row.names(out1$summary)),]
+  
+  #look at histograms all of parameters
+  myparams<-row.names(out1$summary)
+  myparams<-sapply(myparams,function(x)strsplit(x,"\\[")[[1]][1])
+  myData<-data.frame(Param=as.character(myparams),Coef=do.call(c,out1$mean))
+  
+  ggplot(myData)+
+    geom_histogram(aes(x=Coef))+
+    facet_wrap(~Param,scales="free")
   
   #############################################################################################
   
