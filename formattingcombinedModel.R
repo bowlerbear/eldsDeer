@@ -73,7 +73,7 @@ setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Repo
 
 #read in spatial point data with distances
 transectPoints<-read.delim("SpatialPoints_ProcessedOutput(2013-2017distances).txt")
-transectPoints<-subset(transectPoints,Year%in%c(2013:2017))
+transectPoints<-subset(transectPoints,Year%in%c(2014:2017))
 coordinates(transectPoints)<-c("coords.x1","coords.x2")
 
 #get camera trap points
