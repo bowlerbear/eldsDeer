@@ -73,7 +73,7 @@ setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Repo
 
 #read in spatial point data with distances
 transectPoints<-read.delim("SpatialPoints_ProcessedOutput(2013-2017distances).txt")
-transectPoints<-subset(transectPoints,Year%in%c(2014:2017))
+transectPoints<-subset(transectPoints,Year%in%c(2014:2016))
 coordinates(transectPoints)<-c("coords.x1","coords.x2")
 
 #get camera trap points
@@ -174,6 +174,9 @@ rVillages<-as.data.frame(r2,xy=T)
 rVillages$Village<-villagesR$weight[match(rVillages$layer,villagesR$value)]
 rVillages$Village[is.na(rVillages$Village)]<-0
 villageRaster<-rasterFromXYZ(rVillages[,c("x","y","Village")])
+
+library(gdistance)
+
 #smooth the raster
 villageRaster <- focal(villageRaster, w=matrix(1, 9, 9), mean)
 projection(villageRaster)<-CRS("+proj=longlat +ellps=WGS84") 
@@ -362,6 +365,9 @@ sites.lt<-as.numeric(dimnames(covAlign)[[1]])
 #Get number of groups seen per transect
 groupInfo<-acast(datafile,Transect~T,value.var="Obs",fun=sum,na.rm=T)
 
+#Get total individuals seen per transects
+totalsInfo<-acast(datafile,Transect~T,value.var="GroupSize",fun=sum,na.rm=T)
+
 #get average group size per transect
 groupSizes<-acast(datafile,Transect~T,value.var="GroupSize",fun=mean)
 
@@ -416,9 +422,9 @@ pa[pa>0]<-1
 pa<-apply(pa,1,function(x)ifelse(all(x==1),1,0))
 
 
-################
-#Get Covariates#
-################
+####################################################
+#Organise covariates into a dataframe for the model#
+####################################################
 
 head(myGridDF3km)
 
@@ -455,7 +461,6 @@ plot(overlapRaster)
 #scale overlap between 0 and 3...?
 myGridDFOverlap<-subset(myGridDF,!is.na(Overlap))
 myGridDFOverlap$Overlap<-myGridDFOverlap$Overlap*9
-
 transectAreas<-myGridDFOverlap$Overlap[match(gridTranslate$Grid,myGridDFOverlap$Grid3km)]
 
 #or based on number of 1km grids being sampled

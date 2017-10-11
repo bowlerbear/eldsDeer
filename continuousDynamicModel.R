@@ -47,6 +47,7 @@ groupInfo<-acast(datafile,Transect~T,value.var="Obs",fun=sum,na.rm=T)
 
 #get average group size per transect
 groupSizes<-acast(datafile,Transect~T,value.var="GroupSize",fun=mean)
+groupSizes[is.na(groupSizes)]<-0
 
 #detectionInfo summary data
 detectionInfo<-datafile[,c("Obs","Distance","GroupSize")]
@@ -83,6 +84,7 @@ bugs.data<-list(nTransect = length(unique(datafile$Transect)),
             W = 250,
             L = transectDistances,
             n = groupInfo,
+            groupSizes = groupSizes,
             N = nrow(detectionInfo),
             y = detectionInfo$Distance,
             gs = detectionInfo$GroupSize,
@@ -115,8 +117,6 @@ model{
 
   ##### Begin model for *all detections*
   
-  #add NAs for when we don't have detection data at a particular site and year
-
   for( i in 1:N){
     
     ##########
@@ -259,14 +259,28 @@ model{
     for (j in 1:nTransect){
       D.ty[j,t] <- (Density[j,t]*pred.gs[j,t])
     }
-    Dtot[t] <- mean(D.ty[,t])
+    D.tot[t] <- mean(D.ty[,t])
   }
   
   #aggregate over regions
   for (t in 1:nYrs){
           D.region[1,t] <- mean(D.ty[1:6,t])
           D.region[2,t] <- mean(D.ty[7:16,t])
+  }
+
+  #predictions just based on data
+  for (t in 1:nYrs){  
+    for (j in 1:nTransect){
+      Ddata.ty[j,t] <- max(0,n[j,t]*groupSizes[j,t]*EffectiveArea [j,t])
     }
+    Ddata.tot[t] <- mean(D.ty[,t])
+  }
+  
+  #aggregate over regions
+  for (t in 1:nYrs){
+          Ddata.region[1,t] <- mean(Ddata.ty[1:6,t])
+          Ddata.region[2,t] <- mean(Ddata.ty[7:16,t])
+  }
 
   }
   ",fill=TRUE,file="continuous_Dynamic.txt")
@@ -274,23 +288,28 @@ model{
   source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
   
   params <- c("b.df.GroupSize","b.df.0","B.gs.0","B.n.0","B.gs.T","B.gs.Region","B.gs.Region.T","B.n.T",
-              "B.n.Region","B.n.Region.T","Density","D.ty","Dtot","D.region","pred.gs")
+              "B.n.Region","B.n.Region.T","Density","D.ty","D.tot","D.region","pred.gs",
+              "Ddata.ty","Ddata.tot","Ddata.region")
   
   inits <- function(){list(b.df.0 = runif(1,2,5), 
                            B.gs.0 = runif(1,0.2,3),
                            B.n.0 = runif(1,0.5,5))}
   
+  n.iter<-10000
   out1 <- jags(bugs.data, inits=inits, params, "continuous_Dynamic.txt", n.thin=nt,
                n.chains=nc, n.burnin=nb,n.iter=ni)
   
   print(out1,2)
+  
+  #look at a certain parameter
+  out1$summary[grepl("pred.gs",row.names(out1$summary)),]
   
   #############################################################################################
   
   ##########################
   #Plotting the predictions#
   ##########################
-  
+  setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment")
   #(1) get the predictions of densities per transect and time
   expectedDensities<-out1$summary
   expectedDensities<-data.frame(expectedDensities[grepl("D.ty",row.names(expectedDensities)),])
@@ -298,11 +317,13 @@ model{
   expectedDensities$Year<-rep(1:20,each=16)
   
   #plotting
+  png("transect_ts.png")
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
+  dev.off()
   
   #(2) get the predictions of densities per time
   expectedDensities<-out1$summary
-  expectedDensities<-data.frame(expectedDensities[grepl("Dtot",row.names(expectedDensities)),])
+  expectedDensities<-data.frame(expectedDensities[grepl("D.tot",row.names(expectedDensities)),])
   expectedDensities$Year<-1998:2017
   
   #plotting
@@ -315,8 +336,10 @@ model{
   expectedDensities$Year<-rep(1:20,each=2)
   
   #plotting
+  png("regionts.png")
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect)
-
+  dev.off()
+  
   #(4) get the predictions of densities (number of groups) per time and transect
   expectedDensities<-out1$summary
   expectedDensities<-data.frame(expectedDensities[grepl("Density",row.names(expectedDensities)),])
@@ -337,6 +360,25 @@ model{
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
   
   ggplot(expectedDensities)+geom_point(aes(x=Year,y=mean))+facet_wrap(~Transect,scales="free")
+  
+  #(6) plotting the predictions just based off the data - by region
+  expectedDensities<-out1$summary
+  expectedDensities<-data.frame(expectedDensities[grepl("Ddata.region",row.names(expectedDensities)),])
+  expectedDensities$Transect<-rep(1:2)
+  expectedDensities$Year<-rep(1:20,each=2)
+  
+  png("region_data_ts.png")
+  ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect)
+  dev.off()
+  
+  #(7) plotting the predictions just based off the data - by transect
+  expectedDensities<-out1$summary
+  expectedDensities<-data.frame(expectedDensities[grepl("Ddata.ty",row.names(expectedDensities)),])
+  expectedDensities$Transect<-rep(1:16,20)
+  expectedDensities$Year<-rep(1:20,each=16)
+  
+  ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+
+    facet_wrap(~Transect,scales="free")
   
   ##############################################################################################
   
