@@ -26,6 +26,10 @@ datafile$Distance[datafile$Distance>250]<-NA
 datafile$Transect<-datafile$Transect-min(datafile$Transect)+1
 datafile$T<-datafile$Year-min(datafile$Year)+1
 
+#clean/add variables
+datafile$Region<-ifelse(datafile$Region=="Blue",0,1)
+datafile$Observer<-paste(datafile$Year,datafile$Transect)
+
 #get info on transect lengths for each year and transect
 transectDistances<-acast(datafile,Transect~T,value.var="TransectDist",fun=max)#there is only one value, just take the maximum
 transectDistances[is.infinite(transectDistances)]<-1 #add in nominal distance when there was none
@@ -50,24 +54,23 @@ groupSizes<-acast(datafile,Transect~T,value.var="GroupSize",fun=mean)
 groupSizes[is.na(groupSizes)]<-0
 
 #detectionInfo summary data
-detectionInfo<-datafile[,c("Obs","Distance","GroupSize")]
+detectionInfo<-datafile[,c("Obs","T","Region","Transect","GroupSize","Distance")]
 detectionInfo<-subset(detectionInfo,Obs==1)
 
 #look at frequency histogram of distribution distances
 library(lattice)
 histogram(detectionInfo$Distance)
 
-#potential covariates for the process(P) and the detection (D) model
-datafile$Region<-ifelse(datafile$Region=="Blue",0,1)
-datafile$Observer<-paste(datafile$Year,datafile$Transect)
-covarsP<-datafile[,c("Obs","T","Region","Transect","GroupSize")]
-covarsD<-covarsP[covarsP[,1]==1,]
-
 #TransectYears used in the model
 transectInfo<-unique(datafile[,c("Transect","T")])
 transectYears<-sort(unique(transectInfo[,"T"]))
 transectTransect<-sort(unique(transectInfo[,"Transect"]))
 transectRegion<-ifelse(transectTransect<7,0,1)
+
+#add in NA for group sizes when no species were seen at a year in a transect
+surveyInfo<-merge(transectInfo,detectionInfo,by=c("Transect","T"),all=T)
+surveyInfo<-surveyInfo[,names(detectionInfo)]
+surveyInfo$Region<-ifelse(surveyInfo$Transect<7,0,1)
 
 #index all data points by transect and year for use in the model
 datafileObs<-subset(datafile,Obs==1)
@@ -87,9 +90,10 @@ bugs.data<-list(nTransect = length(unique(datafile$Transect)),
             groupSizes = groupSizes,
             N = nrow(detectionInfo),
             y = detectionInfo$Distance,
-            gs = detectionInfo$GroupSize,
-            covarsP = covarsP,
-            covarsD = covarsD,
+            gs = surveyInfo$GroupSize,
+            covarsD = detectionInfo,
+            nSurveys = nrow(surveyInfo),
+            covarsGS = surveyInfo,
             #nTransectYrs = nrow(transectInfo),
             transectYears = transectYears,
             transectRegion = transectRegion,
@@ -177,22 +181,23 @@ model{
     }
 
     #random time effects
-    #sd.gs.time ~ dunif(0,19)
-    #tau.gs.time <- pow(sd.gs.time,-2)
-    #for(t in 1:nYrs){
-    #  random.gs.time[t] ~ dnorm(0,tau.gs.time)
-    #}
+    sd.gs.time ~ dunif(0,19)
+    tau.gs.time <- pow(sd.gs.time,-2)
+    for(t in 1:nYrs){
+      random.gs.time[t] ~ dnorm(0,tau.gs.time)
+    }
 
   ##### Begin model for all detections
 
-  for (i in 1:N){
+  for (i in 1:nSurveys){
     #fit model
     mu.gs[i] <- exp(B.gs.0 + 
-    B.gs.T*covarsP[i,2]+
-    random.gs.trans[covarsP[i,4]]+
-    covarsP[i,2]*random.gs.transtime[covarsP[i,4]]+
-    B.gs.Region*covarsP[i,3] +
-    B.gs.Region.T*covarsP[i,2]*covarsP[i,3])
+    B.gs.T*covarsGS[i,2]+
+    random.gs.trans[covarsGS[i,4]]+
+    covarsGS[i,2]*random.gs.transtime[covarsGS[i,4]]+
+    random.gs.time[covarsGS[i,2]]+
+    B.gs.Region*covarsGS[i,3] +
+    B.gs.Region.T*covarsGS[i,2]*covarsGS[i,3])
     
     #specify distribution
     gs[i] ~ dpois(mu.gs[i])
@@ -203,6 +208,7 @@ model{
     for (t in 1:nYrs){
       pred.gs[j,t]<-exp(B.gs.0 + 
       B.gs.T*transectYears[t]+
+      random.gs.time[t]+
       random.gs.trans[j]+
       random.gs.transtime[j]*transectYears[t]+
       B.gs.Region*transectRegion[j] +
@@ -230,8 +236,8 @@ model{
     random.trans[j] ~ dnorm(0,tau.trans)
   }
 
-  #random effects
-  sd.time ~ dunif(0,10)
+  #random time effects
+    sd.time ~ dunif(0,10)
     tau.time <- pow(sd.time,-2)
     for(t in 1:nYrs){
     random.time[t] ~ dnorm(0,tau.time)
@@ -259,8 +265,8 @@ model{
               random.trans[j]+
               random.transtime[j]*transectYears[t]+
               B.n.Region*transectRegion[j]+
-              B.n.Region.T*transectYears[t]*transectRegion[j]
-              #random.time[t]
+              B.n.Region.T*transectYears[t]*transectRegion[j]+
+              random.time[t]
    }
   }
 
@@ -337,9 +343,9 @@ model{
   ggplot(expectedDensities)+geom_point(aes(x=Year,y=log(mean)))+facet_wrap(~Transect)
   
   #plotting
-  png("transect_ts.png")
+  #png("transect_ts.png")
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
-  dev.off()
+  #dev.off()
   
   #(2) get the predictions of densities per time
   expectedDensities<-out1$summary
@@ -356,9 +362,9 @@ model{
   expectedDensities$Year<-rep(1:20,each=2)
   
   #plotting
-  png("regionts.png")
+  #png("regionts.png")
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect)
-  dev.off()
+  #dev.off()
   
   #(4) get the predictions of densities (number of groups) per time and transect
   expectedDensities<-out1$summary
@@ -389,9 +395,9 @@ model{
   expectedDensities$Transect<-rep(1:2)
   expectedDensities$Year<-rep(1:20,each=2)
   
-  png("region_data_ts.png")
+  #png("region_data_ts.png")
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect)
-  dev.off()
+  #dev.off()
   
   #(7) plotting the predictions just based off the data - by transect
   expectedDensities<-out1$summary
