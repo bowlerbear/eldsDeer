@@ -354,9 +354,9 @@ model{
   ggplot(expectedDensities)+geom_point(aes(x=Year,y=log(mean)))+facet_wrap(~Transect)
   
   #plotting
-  #png("transect_ts.png")
+  png("transect_ts.png")
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect,scales="free")
-  #dev.off()
+  dev.off()
   
   #(2) get the predictions of densities per time
   expectedDensities<-out1$summary
@@ -373,9 +373,9 @@ model{
   expectedDensities$Year<-rep(1:20,each=2)
   
   #plotting
-  #png("regionts.png")
+  png("regionts.png")
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect)
-  #dev.off()
+  dev.off()
   
   #(4) get the predictions of densities (number of groups) per time and transect
   expectedDensities<-out1$summary
@@ -406,9 +406,9 @@ model{
   expectedDensities$Transect<-rep(1:2)
   expectedDensities$Year<-rep(1:20,each=2)
   
-  #png("region_data_ts.png")
+  png("region_data_ts.png")
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect)
-  #dev.off()
+  dev.off()
   
   #(7) plotting the predictions just based off the data - by transect
   expectedDensities<-out1$summary
