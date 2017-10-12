@@ -48,6 +48,7 @@ datafile<-datafile[order(datafile$Obs,decreasing=T),]
 
 #Get number of groups seen per transect and each year
 groupInfo<-acast(datafile,Transect~T,value.var="Obs",fun=sum,na.rm=T)
+hist(groupInfo)
 
 #get average group size per transect
 groupSizes<-acast(datafile,Transect~T,value.var="GroupSize",fun=mean)
@@ -56,6 +57,7 @@ groupSizes[is.na(groupSizes)]<-0
 #detectionInfo summary data
 detectionInfo<-datafile[,c("Obs","T","Region","Transect","GroupSize","Distance")]
 detectionInfo<-subset(detectionInfo,Obs==1)
+hist(detectionInfo$GroupSize)
 
 #look at frequency histogram of distribution distances
 library(lattice)
@@ -97,7 +99,7 @@ bugs.data<-list(nTransect = length(unique(datafile$Transect)),
             #nTransectYrs = nrow(transectInfo),
             transectYears = transectYears,
             transectRegion = transectRegion,
-            transectTransect = transectTransect,
+            #transectTransect = transectTransect,
             #ty.combos = transectInfo,
             #TransYrIdx = TransYrIdx,
             zeros.dist = rep(0,nrow(detectionInfo)))
@@ -187,6 +189,14 @@ model{
       random.gs.time[t] ~ dnorm(0,tau.gs.time)
     }
 
+  #overdispersion term
+    sd.gs ~ dunif(0,10)
+    prec.gs <- pow(sd.gs,-2)
+  for(i in 1:nSurveys){
+    overdispersion[i] ~ dnorm(0,prec.gs)
+    }
+    
+
   ##### Begin model for all detections
 
   for (i in 1:nSurveys){
@@ -197,7 +207,8 @@ model{
     covarsGS[i,2]*random.gs.transtime[covarsGS[i,4]]+
     random.gs.time[covarsGS[i,2]]+
     B.gs.Region*covarsGS[i,3] +
-    B.gs.Region.T*covarsGS[i,2]*covarsGS[i,3])
+    B.gs.Region.T*covarsGS[i,2]*covarsGS[i,3]+
+    overdispersion[i])
     
     #specify distribution
     gs[i] ~ dpois(mu.gs[i])
