@@ -32,6 +32,7 @@ bugs.data<-list(#camera trap data
                 #covariates
                 Forest=forestcover,
                 Forest2=forestcover2,
+                Fields = fields,
                 Military=military,
                 Villages=villages,
                 Water=waterMatrix,
@@ -49,11 +50,12 @@ cat("
     beta.forest2 ~ dnorm(0,0.001)
     beta.villages ~ dnorm(0,0.001)
     beta.military ~ dnorm(0,0.001)
+    beta.fields ~ dnorm(0,0.001)
 
     #Model of factors affecting abundance
     for (i in 1:n.sites) { #across all sites   
-      abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + beta.forest2 * Forest2[i] + 
-                          beta.villages * Villages[i]
+      abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + beta.forest2 * Forest2[i]+
+                          beta.fields * Fields[i]
     }
 
     #Line transect data:
@@ -137,6 +139,7 @@ cat("
 
     #get predicted average density across whole area
     avDensity <- mean(Density)
+    totDensity <- sum(Density)
 
     }
     ",fill = TRUE)
@@ -148,13 +151,13 @@ zst.ct <- apply(y, 1, max, na.rm=T)
 ast <-apply(y,c(1,2),max,na.rm=T)
 ast[is.infinite(ast)]<-0
 
-params <- c("b.gs.0","averagePa","beta.forest","beta.military","beta.forest2","beta.villages","avDensity","Density")
+params <- c("b.gs.0","averagePa","beta.forest","beta.military","beta.forest2","beta.fields","avDensity","totDensity","Density")
 
 inits <- function(){list(z.ct = zst.ct,
                          a = ast,
                          sigma=runif(1,80,150))}
 
-n.iter<-10000
+ni<-30000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
@@ -179,7 +182,7 @@ dev.off()
 
 #get total number of predicted deer
 out2<-subset(out,!duplicated(Grid3km))
-sum(out2$fits)#1159.388
+sum(out2$fits)#1357.637
 
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
