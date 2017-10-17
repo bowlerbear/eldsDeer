@@ -30,11 +30,13 @@ bugs.data<-list(#camera trap data
                 #total number of sites  
                 n.sites = length(unique(myGridDF3km$Grid3km)),
                 #covariates
-                Forest=forestcover,
-                Forest2=forestcover2,
-                Fields = fields,
-                Military=military,
-                Villages=villages,
+                Forest=forestcoverB,
+                #Forest2=forestcover2,
+                Fields=scale(sqrt(fields+1)),
+                Fields2=scale(fields^2),
+                Military=ifelse(military>0,1,0),
+                Villages=scale(sqrt(villages+1)),
+                Villages2=scale(villages^2),
                 Water=waterMatrix,
                 Month=monthMatrix)
 
@@ -54,8 +56,8 @@ cat("
 
     #Model of factors affecting abundance
     for (i in 1:n.sites) { #across all sites   
-      abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + beta.forest2 * Forest2[i]+
-                          beta.fields * Fields[i]
+      abund.effect[i] <-  beta.forest * Forest[i]+ beta.military * Military[i] +
+                          beta.villages * Villages[i] + beta.fields * Fields[i]
     }
 
     #Line transect data:
@@ -151,13 +153,15 @@ zst.ct <- apply(y, 1, max, na.rm=T)
 ast <-apply(y,c(1,2),max,na.rm=T)
 ast[is.infinite(ast)]<-0
 
-params <- c("b.gs.0","averagePa","beta.forest","beta.military","beta.forest2","beta.fields","avDensity","totDensity","Density")
+params <- c("b.gs.0","averagePa","beta.forest","beta.military",
+            "beta.villages","beta.fields",
+            "avDensity","totDensity","Density")
 
 inits <- function(){list(z.ct = zst.ct,
                          a = ast,
                          sigma=runif(1,80,150))}
 
-ni<-30000
+ni<-50000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
@@ -182,7 +186,7 @@ dev.off()
 
 #get total number of predicted deer
 out2<-subset(out,!duplicated(Grid3km))
-sum(out2$fits)#1357.637
+sum(out2$fits)#1304.892
 
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)

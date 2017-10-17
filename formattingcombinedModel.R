@@ -178,7 +178,7 @@ villageRaster<-rasterFromXYZ(rVillages[,c("x","y","Village")])
 library(gdistance)
 
 #smooth the raster
-villageRaster <- focal(villageRaster, w=matrix(1, 9, 9), mean)
+villageRaster <- focal(villageRaster, w=matrix(1, 17, 17), mean,na.rm=T)
 projection(villageRaster)<-CRS("+proj=longlat +ellps=WGS84") 
 villageRaster<-projectRaster(from=villageRaster,to=myGrid)
 rVillages<-as.data.frame(r2,xy=T)
@@ -223,7 +223,7 @@ myGridDF$Transect<-DF$layer
 #also organise the data on a 3km grid
 myGridDF3km<-ddply(myGridDF,.(Grid3km),summarise,
                    Military=sum(Military),
-                   Villages=sum(Villages),
+                   Villages=sum(Villages,na.rm=T),
                    ForestCover=sum(ForestCover),
                    Fields=sum(Fields),
                    Deer.ct=max(Deer.ct,na.rm=T),
@@ -232,6 +232,8 @@ myGridDF3km<-ddply(myGridDF,.(Grid3km),summarise,
 myGridDF3km$Deer.ct[is.infinite(myGridDF3km$Deer.ct)]<-NA
 myGridDF3km$Deer.lt[is.infinite(myGridDF3km$Deer.lt)]<-NA
 myGridDF3km$Deer<-ifelse(myGridDF3km$Deer.ct==1|myGridDF3km$Deer.lt==1,1,0)
+
+#also add some lat and lon coordinates
 
 ########################################################################
 
@@ -431,11 +433,13 @@ head(myGridDF3km)
 #Camera data is first and then the line transects
 myGridDF3km<-subset(myGridDF3km,!is.na(Deer.ct)|!is.na(Deer.lt))
 forestcover<-myGridDF3km$ForestCover
+forestcoverB<-ifelse(forestcover<40,0,1)
 forestcover2<-log(forestcover+1)
 military<-myGridDF3km$Military
 fields<-myGridDF3km$Fields
 fields<-sqrt(fields+1)
 villages<-myGridDF3km$Villages
+presenceRecord<-ifelse(myGridDF3km$Deer==1&!is.na(myGridDF3km$Deer),1,0)
 
 #relabel the site id
 myGridDF3km$Grid<-1:nrow(myGridDF3km)
@@ -468,4 +472,11 @@ transectAreas<-myGridDF3km$TransectNu[match(sites.lt,myGridDF3km$Grid)]
 transectAreas[transectAreas==0]<-1
 transectAreas<-transectAreas/9
 
+#################################################################################################
+
+#investigate association between covariates
+cor.test(myGridDF3km$Villages,myGridDF3km$Fields)#0.4470563 
+hist(sqrt(myGridDF3km$Villages+1))
+hist(sqrt(myGridDF3km$Fields+1))
+cor.test(sqrt(myGridDF3km$Villages+1),sqrt(myGridDF3km$Fields+1))#0.5031411 
 #################################################################################################

@@ -21,12 +21,12 @@ bugs.data<-list(#camera trap data
                 W = 250,
                 n = totalsInfo,
                 n.Detections = nrow(detectionInfo),
-                #n.detectionSites = length(unique(detectionInfo$Site)),
-                #d.Forest = detectionInfo$forestcover,
-                #d.Military = detectionInfo$military,
+                n.detectionSites = length(unique(detectionInfo$Site)),
+                d.Forest = detectionInfo$forestcover,
+                d.Military = detectionInfo$military,
                 y = detectionInfo$Distance,
-                #d.Groupsize = detectionInfo$GroupSize,
-                #d.Site = detectionInfo$Site,
+                d.Groupsize = detectionInfo$GroupSize,
+                d.Site = detectionInfo$Site,
                 n.TransectYrs = nrow(transectInfo),
                 ty.combos = transectInfo,
                 TransYrIdx = TransYrIdx,
@@ -36,17 +36,15 @@ bugs.data<-list(#camera trap data
                 n.sites = length(unique(myGridDF3km$Grid3km)),
                 #covariates
                 Forest=forestcoverB,
-                #Forest2=forestcover2,
-                Fields=scale(sqrt(fields+1)),
-                Fields2=scale(fields^2),
-                Military=ifelse(military>0,1,0),
-                Villages=scale(sqrt(villages+1)),
-                Villages2=scale(villages^2),
+                Forest2=forestcover2,
+                Fields=fields,
+                Military=military,
+                Villages=villages,
                 Water=waterMatrix,
                 Month=monthMatrix)
 
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
-sink("combinedModel_grouped.txt")
+sink("combinedModel.txt")
 cat("
     model {
     
@@ -58,12 +56,11 @@ cat("
     beta.villages ~ dnorm(0,0.001)
     beta.military ~ dnorm(0,0.001)
     beta.fields ~ dnorm(0,0.001)
-    beta.villages2 ~ dnorm(0,0.001)
+
 
     #Model of factors affecting abundance
     for (i in 1:n.sites) { #across all sites   
-      abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
-                          beta.villages * Villages[i] + beta.fields * Fields[i]
+      abund.effect[i] <-  beta.forest * Forest[i]+ beta.military * Military[i] + beta.fields * Fields[i] + beta.villages * Villages[i]
     }
 
     #Different observation models depending on the data:
@@ -86,13 +83,13 @@ cat("
     #Model (multi-scale occupancy model using cloglog so we are esssentially modelling abundance!)
     for (i in 1:n.CameraTrapSites) { 
     z.ct[i] ~ dbern(psi[i])
-    cloglog(psi[i]) <- intercept.ct
+    cloglog(psi[i]) <- intercept.ct + abund.effect[site.ct[i]]
   
     #availbility for detection model
     for (j in 1:n.1kmGrids){
     a[i,j] ~ dbern(mu.a[i,j])
     mu.a[i,j] <- z.ct[i] * theta[i,j]
-    cloglog(theta[i,j]) <- logit(int.theta[j]) + theta.water * Water[i,j]
+    cloglog(theta[i,j]) <- logit(int.theta[j]) + theta.water * Water[i,j]+ abund.effect[site.ct[i]]
   
     #detection submodel 
     for (k in 1:n.reps) { # Loop over replicate surveys
@@ -102,90 +99,17 @@ cat("
     }
     }
     }
-    
-    #(2) Line transect data:
-
-    # DETECTABILITY COMPONENT#####
-
-    pi <- 3.141593
-
-    #Priors
-    #mean.p.lt ~ dunif(0, 1)
-    #alpha.lt <- logit(mean.p.lt)
-    sigma ~ dunif(50,140)
-    b.d.0 ~ dunif(0,20)
-    #b.d.GroupSize ~ dnorm(0,0.0001)#no effect
-    #b.d.Forest ~ dnorm(0,0.0001)#no effect
-    
-    ##### Begin model for *all detections*
-    
-    for( i in 1:n.Detections){
-    
-    #MODELS FOR HALF-NORMAL DETECTION PARAMETER SIGMA
-    mu.df[i] <- b.d.0
-    
-    # estimate of sd and var, given coeffs above
-    sig.df[i] <- exp(mu.df[i])
-    sig2.df[i] <- sig.df[i]*sig.df[i]
-    
-    # effective strip width
-    esw[i] <- sqrt(pi * sig2.df[i] / 2)
-    f0[i] <- 1/esw[i] #assuming all detected on the line
-    
-    # LIKELIHOOD
-    # estimate sigma using zeros trick
-    L.f0[i] <- exp(-y[i]*y[i] / (2*sig2.df[i])) * 1/esw[i] #y are the distances
-    nlogL.f0[i] <-  -log(L.f0[i])
-    zeros.dist[i] ~ dpois(nlogL.f0[i])
-    }
-    
-    #get average esw per transect and year
-    for(k in 1:n.TransectYrs){
-      for(i in 1:n.Detections){
-        grp.ESW[i,k] <- esw[i] * TransYrIdx[i,k]
-      }
-        ESW.jt[ty.combos[k,1], ty.combos[k,2]] <- sum(grp.ESW[,k])/max(1,sum(TransYrIdx[,k]))  
-      }
-    
-    #convert into an average detection probability 
-    #because no factors were found to affect detection probability, the value is constant
-    for (j in 1:n.Transect){
-    ESW.j[j] <- max(0.0001,ESW.jt[j,])
-    }
-    ESW.constant <- max(ESW.j[])
-    averagePa <- ESW.constant/W
-
-
-    # MODEL NUMBER OF INDIVIDUALS DETECTED
-
-    # PRIORS
-    intercept.lt ~ dnorm(0,0.001)
-    
-    #Random year effect (we are using line transect data from 3 years)
-    sd.n.time ~ dunif(0,10)
-    tau.n.time <- pow(sd.n.time,-2)
-    for(t in 1:n.Yrs){
-      random.n.time[t] ~ dnorm(0,tau.n.time)
-    }
-
-    #fit model
-    for (j in 1:n.Transect){
-      for (t in 1:n.Yrs){
-        n[j,t] ~ dpois(nHat[j,t]*transectAreas[j]*averagePa) 
-        log(nHat[j,t]) <- intercept.lt + abund.effect[site.lt[j]] + random.n.time[t]
-    }
-    }
 
     #predict density (number of indivdiuals per grid cell) for all sites 
     #using the abundance effect and average group size
     #and the intercept of the line transect model for number of groups
     for(i in 1:n.sites){
-      log(Density[i]) <- intercept.lt + abund.effect[i]
+      log(Density[i]) <- abund.effect[i] + intercept.ct
     }
-
-    #get predicted total across whole area
-    avDensity <- mean(Density)
-    totDensity <- sum(Density)
+    
+    #get predicted average density across whole area
+    #avDensity <- mean(Density)
+    #totDensity <- sum(Density)
 
     }
     ",fill = TRUE)
@@ -197,15 +121,14 @@ zst.ct <- apply(y, 1, max, na.rm=T)
 ast <-apply(y,c(1,2),max,na.rm=T)
 ast[is.infinite(ast)]<-0
 
-params <- c("intercept.lt","averagePa","beta.forest","beta.military","beta.villages","beta.fields",
-            "avDensity","totDensity","Density")
+params <- c("intercept.ct","averagePa","beta.forest","beta.military","beta.villages","beta.fields",
+            "abund.effect","Density")
 
 inits <- function(){list(z.ct = zst.ct,
-                         a = ast,
-                         sigma=runif(1,80,150))}
+                         a = ast)}
 
-ni<-50000
-out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped.txt", n.thin=nt,
+ni<-10000
+out1 <- jags(bugs.data, inits=inits, params, "combinedModel.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
 print(out1,2)
@@ -222,19 +145,42 @@ out<-subset(myGridDF,!is.na(fits))
 summary(out$fits)
 predRaster<-rasterFromXYZ(out[,c("x","y","fits")])
 predRaster<-mask(predRaster,sws)
-png(file="combinedModel_grouped.png")
+png(file="combinedModel_grouped_noLineTransects.png")
 plot(predRaster)
 plot(sws,add=T)
 dev.off()
 
 #get total number of predicted deer
 out2<-subset(out,!duplicated(Grid3km))
-sum(out2$fits)#1282.019
+sum(out2$fits)
 
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
 coefTable$Parameter<-row.names(out1$summary)
-save(coefTable,file="coefTable_combinedModel_grouped.RData")
+save(coefTable,file="coefTable_combinedModel_grouped_noLineTransects.RData")
 
 #########################################################################################
+
+#with all cloglog and abund effect on detection probability
+                mean    sd   2.5%    50%  97.5% overlap0    f Rhat n.eff
+beta.forest    -3.01  0.67  -4.35  -3.00  -1.66    FALSE 1.00 1.09    29
+beta.military   0.19  0.06   0.07   0.19   0.31    FALSE 1.00 1.04    58
+beta.villages  -9.13  3.09 -15.33  -9.08  -3.34    FALSE 1.00 1.01   301
+beta.fields    -0.13  0.28  -0.66  -0.14   0.45     TRUE 0.69 1.05    52
+
+#with all cloglog and abund effect on the state model
+                mean    sd   2.5%    50%  97.5% overlap0    f Rhat n.eff
+beta.forest   -13.83 12.07 -43.16  -7.10  -2.38    FALSE 1.00 2.98     4
+beta.military  24.38 18.68   0.70  20.55  67.90    FALSE 0.99 1.01   358
+beta.villages -11.74 19.50 -56.45  -9.24  21.53     TRUE 0.72 1.16    20
+beta.fields    -6.75  5.85 -21.12  -4.74  -0.21    FALSE 0.99 2.24     5
+
+#with all cloglog and abund effect on all
+                mean   sd   2.5%    50%  97.5% overlap0    f Rhat n.eff
+beta.forest    -1.81 0.45  -2.78  -1.78  -1.01    FALSE 1.00 1.00   910
+beta.military   0.17 0.05   0.07   0.17   0.27    FALSE 1.00 1.00   656
+beta.villages  -6.47 2.27 -10.99  -6.43  -2.12    FALSE 1.00 1.00   766
+beta.fields    -0.27 0.19  -0.65  -0.26   0.07     TRUE 0.93 1.00  1059
+
+#######################################################################################
 
