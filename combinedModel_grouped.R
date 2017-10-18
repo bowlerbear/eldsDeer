@@ -35,13 +35,11 @@ bugs.data<-list(#camera trap data
                 #total number of sites  
                 n.sites = length(unique(myGridDF3km$Grid3km)),
                 #covariates
-                Forest=forestcoverB,
+                Forest=as.numeric(sqrt(forestcover+1)),
                 #Forest2=forestcover2,
-                Fields=scale(sqrt(fields+1)),
-                Fields2=scale(fields^2),
-                Military=ifelse(military>0,1,0),
-                Villages=scale(sqrt(villages+1)),
-                Villages2=scale(villages^2),
+                Fields=as.numeric(scale(sqrt(fields+1))),
+                Military=militaryB,
+                Villages=as.numeric(scale(sqrt(villages+1))),
                 Water=waterMatrix,
                 Month=monthMatrix)
 
@@ -54,11 +52,9 @@ cat("
 
     #Priors
     beta.forest ~ dnorm(0,0.001)
-    beta.forest2 ~ dnorm(0,0.001)
     beta.villages ~ dnorm(0,0.001)
     beta.military ~ dnorm(0,0.001)
     beta.fields ~ dnorm(0,0.001)
-    beta.villages2 ~ dnorm(0,0.001)
 
     #Model of factors affecting abundance
     for (i in 1:n.sites) { #across all sites   
@@ -86,7 +82,7 @@ cat("
     #Model (multi-scale occupancy model using cloglog so we are esssentially modelling abundance!)
     for (i in 1:n.CameraTrapSites) { 
     z.ct[i] ~ dbern(psi[i])
-    cloglog(psi[i]) <- intercept.ct
+    cloglog(psi[i]) <- intercept.ct + abund.effect[site.ct[i]]
   
     #availbility for detection model
     for (j in 1:n.1kmGrids){
@@ -152,9 +148,9 @@ cat("
     for (j in 1:n.Transect){
     ESW.j[j] <- max(0.0001,ESW.jt[j,])
     }
-    ESW.constant <- max(ESW.j[])
-    averagePa <- ESW.constant/W
 
+    ESW.constant <- max(ESW.j)
+    averagePa <- ESW.constant/W
 
     # MODEL NUMBER OF INDIVIDUALS DETECTED
 
@@ -167,6 +163,7 @@ cat("
     for(t in 1:n.Yrs){
       random.n.time[t] ~ dnorm(0,tau.n.time)
     }
+
 
     #fit model
     for (j in 1:n.Transect){
@@ -192,6 +189,8 @@ cat("
 sink()
 
 source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
+
+#https://www.r-bloggers.com/spatial-autocorrelation-of-errors-in-jags/
 
 zst.ct <- apply(y, 1, max, na.rm=T)
 ast <-apply(y,c(1,2),max,na.rm=T)
@@ -229,7 +228,7 @@ dev.off()
 
 #get total number of predicted deer
 out2<-subset(out,!duplicated(Grid3km))
-sum(out2$fits)#1282.019
+sum(out2$fits)#1388.875
 
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
@@ -237,4 +236,3 @@ coefTable$Parameter<-row.names(out1$summary)
 save(coefTable,file="coefTable_combinedModel_grouped.RData")
 
 #########################################################################################
-

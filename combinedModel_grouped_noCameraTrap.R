@@ -30,13 +30,11 @@ bugs.data<-list(#camera trap data
                 #total number of sites  
                 n.sites = length(unique(myGridDF3km$Grid3km)),
                 #covariates
-                Forest=forestcoverB,
+                Forest=as.numeric(sqrt(forestcover+1)),
                 #Forest2=forestcover2,
-                Fields=scale(sqrt(fields+1)),
-                Fields2=scale(fields^2),
-                Military=ifelse(military>0,1,0),
-                Villages=scale(sqrt(villages+1)),
-                Villages2=scale(villages^2),
+                Fields=as.numeric(scale(sqrt(fields+1))),
+                Military=militaryB,
+                Villages=as.numeric(scale(sqrt(villages+1))),
                 Water=waterMatrix,
                 Month=monthMatrix)
 
@@ -49,7 +47,6 @@ cat("
 
     #Priors
     beta.forest ~ dnorm(0,0.001)
-    beta.forest2 ~ dnorm(0,0.001)
     beta.villages ~ dnorm(0,0.001)
     beta.military ~ dnorm(0,0.001)
     beta.fields ~ dnorm(0,0.001)
@@ -186,7 +183,7 @@ dev.off()
 
 #get total number of predicted deer
 out2<-subset(out,!duplicated(Grid3km))
-sum(out2$fits)#1304.892
+sum(out2$fits)#1408.582
 
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
