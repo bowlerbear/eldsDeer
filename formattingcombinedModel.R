@@ -235,6 +235,11 @@ myGridDF3km$Deer<-ifelse(myGridDF3km$Deer.ct==1|myGridDF3km$Deer.lt==1,1,0)
 
 #also add some lat and lon coordinates
 
+#if one method says 0, then lets say it is zero
+myGridDF3km$Deer[is.na(myGridDF3km$Deer)]<-0
+myGridDF3km$ForestCoverF<-ifelse(myGridDF3km$ForestCover<40,0,1)
+myGridDF3km$MilitaryF<-ifelse(myGridDF3km$Military>0,1,0)
+
 ########################################################################
 
 #Fitting a hierarcical model to both datasets
@@ -434,8 +439,8 @@ head(myGridDF3km)
 myGridDF3km<-subset(myGridDF3km,!is.na(Deer.ct)|!is.na(Deer.lt))
 forestcover<-myGridDF3km$ForestCover
 forestcoverB<-ifelse(forestcover<40,0,1)
-forestcover2<-log(forestcover+1)
 military<-myGridDF3km$Military
+militaryB<-ifelse(military>0,1,0)
 fields<-myGridDF3km$Fields
 fields<-sqrt(fields+1)
 villages<-myGridDF3km$Villages
@@ -480,3 +485,25 @@ hist(sqrt(myGridDF3km$Villages+1))
 hist(sqrt(myGridDF3km$Fields+1))
 cor.test(sqrt(myGridDF3km$Villages+1),sqrt(myGridDF3km$Fields+1))#0.5031411 
 #################################################################################################
+
+#what variables should be included and how??
+#effects package
+
+#simple binomial glm
+glm1<-glm(Deer~sqrt(ForestCover+1) + sqrt(Fields + 1) + MilitaryF + sqrt(Villages+1),
+          family=binomial(link="cloglog"),data=myGridDF3km)
+
+summary(glm1)
+
+#check for multicollinearity
+library(car)
+vif(glm1)#all under 2...
+
+#partial plots
+library(effects)
+eff.pres <- allEffects(glm1,partial.residuals=T)
+plot(eff.pres)#pink are the residuals
+eff.pres <- allEffects(glm1)
+plot(eff.pres)
+
+################################################################################################
