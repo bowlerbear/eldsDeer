@@ -203,7 +203,7 @@ inits <- function(){list(z.ct = zst.ct,
                          a = ast,
                          sigma=runif(1,80,150))}
 
-ni<-50000
+ni<-10000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
@@ -216,6 +216,7 @@ traceplot(out1)
 
 setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment")
 myGridDF3km$fits<-out1$mean$Density
+save(myGridDF3km,file="myGridDF3km_wFits.RData")
 myGridDF$fits<-myGridDF3km$fits[match(myGridDF$Grid3km,myGridDF3km$Grid3km)]
 out<-subset(myGridDF,!is.na(fits))
 summary(out$fits)
