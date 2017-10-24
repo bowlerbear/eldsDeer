@@ -290,7 +290,7 @@ cameraTraps<-ddply(cameraTraps,.(Grid3km),function(x){
 obsMatrix<-acast(cameraTraps,Grid3km~GridRep~Day2,value.var="PA")
 dim(obsMatrix)
 
-nu<-30
+nu<-60
 y<-obsMatrix[,,1:nu]
 
 #water info
