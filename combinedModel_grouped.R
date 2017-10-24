@@ -38,7 +38,7 @@ bugs.data<-list(#camera trap data
                 Forest=as.numeric(sqrt(forestcover+1)),
                 #Forest2=forestcover2,
                 Fields=as.numeric(scale(sqrt(fields+1))),
-                Military=militaryB,
+                Military=as.numeric(sqrt(military+1)),
                 Villages=as.numeric(scale(sqrt(villages+1))),
                 Water=waterMatrix,
                 Month=monthMatrix)
@@ -56,10 +56,17 @@ cat("
     beta.military ~ dnorm(0,0.001)
     beta.fields ~ dnorm(0,0.001)
 
+    #random site variation
+    site.sd ~ dunif(0,10)
+    site.tau <- pow(site.sd,-2)
+    for(i in 1:n.sites){
+      random.site[i] ~ dnorm(0,site.tau)
+    }
+
     #Model of factors affecting abundance
     for (i in 1:n.sites) { #across all sites   
       abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
-                          beta.villages * Villages[i] + beta.fields * Fields[i]
+                          beta.villages * Villages[i] + beta.fields * Fields[i] + random.site[i]
     }
 
     #Different observation models depending on the data:

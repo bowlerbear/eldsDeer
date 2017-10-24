@@ -110,13 +110,28 @@ surveysRA<-extract(r,surveysRA)
 transectsRA<-do.call(c,extract(r,transects))
 transectsRA<-transectsRA[!transectsRA%in%transectPointsRP]
 
-#plotting presences and absences
+
+#plotting presences and absences together
 r[]<-0
 r[surveysRA]<-1
 r[transectsRA]<-2
 r[surveysRP]<-4
 r[transectPointsRP]<-5
 plot(r,col=c("white","azure2","azure3","pink","red"))
+plot(sws,add=T)
+
+#transect alone
+r[]<-0
+r[transectsRA]<-2
+r[transectPointsRP]<-5
+plot(r,col=c("white","azure3","red"))
+plot(sws,add=T)
+
+#camera trap alone
+r[]<-0
+r[surveysRA]<-1
+r[surveysRP]<-4
+plot(r,col=c("white","azure2","pink"))
 plot(sws,add=T)
 
 #######################
