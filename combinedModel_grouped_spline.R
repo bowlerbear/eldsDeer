@@ -2,21 +2,24 @@
 
 source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eldsDeer/formattingcombinedModel.R')
 
-######################################################################################
+##############################################
+#First sort out the code for the spline model#
+##############################################
 
-#get grid with simple fits on from the script of 'combinedModel_grouped'
-load("myGridDF3km_wFits.RData")
+setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 
-#get centroids of the grid cells for spline
+#get centroids of the grid cells
 plot(myGrid3km)
 tempDF<-as.data.frame(myGrid3km,xy=T)
 myGridDF3km<-merge(myGridDF3km,tempDF,by.x="Grid3km",by.y="layer")
+predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","Deer")])
+plot(predRaster)
 
 #Use the JAGAM function to get the BUGS code for the spline
 #http://www.petrkeil.com/?p=2385
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 library(mgcv)
-jags.ready <- jagam(round(fits)~s(x, y), 
+jags.ready <- jagam(Deer~1+s(x, y), 
                     data=myGridDF3km, 
                     family="poisson", 
                     file="jagam.txt")
@@ -26,10 +29,10 @@ jags.ready <- jagam(round(fits)~s(x, y),
 X = jags.ready$jags.data$X
 S1 = jags.ready$jags.data$S1
 zero = jags.ready$jags.data$zero
-  
-#######################
-#Compile data for model#
-########################
+
+#####################################
+#Compile the remaining data for model#
+#####################################
 
 bugs.data<-list(#camera trap data
                 site.ct = sites.ct,
@@ -60,15 +63,19 @@ bugs.data<-list(#camera trap data
                 #covariates
                 Forest=forestcoverB,
                 #Forest2=forestcover2,
-                Fields=as.numeric(scale(sqrt(fields+1))),
+                #Fields=as.numeric(scale(sqrt(fields+1))),
                 Military=ifelse(military>0,1,0),
-                Villages=as.numeric(scale(sqrt(villages+1))),
+                #Villages=as.numeric(scale(sqrt(villages+1))),
                 Water=waterMatrix,
                 Month=monthMatrix,
                 #spatial covariates
                 X = X,
                 S1 = S1,
                 zero = zero)
+
+#################
+#Write the model#
+#################
 
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 sink("combinedModel_grouped_spline.txt")
@@ -78,34 +85,31 @@ cat("
     #Model of factors affecting abundance
     beta.forest ~ dnorm(0,0.001)  
     beta.military ~ dnorm(0,0.001)
-    beta.fields ~ dnorm(0,0.001)
-    beta.villages ~ dnorm(0,0.001)
+    #beta.fields ~ dnorm(0,0.001)
+    #beta.villages ~ dnorm(0,0.001)
 
     #the linear predictor
     eta <- X %*% b ## linear predictor for the spline
     
     for (i in 1:n.sites) { #across all sites   
-      abund.effect[i] <-  eta[i] + Forest[i] * beta.forest + Military[i] * beta.military +
-                          Fields[i] * beta.fields
+      abund.effect[i] <-  eta[i] + beta.forest * Forest[i] + beta.military * Military[i]
     }
 
     #Model for the spline
-    ## Parametric effect priors 
-    ##CHECK tau=1/2^2 is appropriate!
+    
+    ## Parametric effect priors
     for (i in 1:1) { 
-      #b[i] ~ dnorm(0,0.24) 
       b[i] ~ dnorm(0,0.001) 
     }
-    
+
     ## prior for s(x,y)... 
     K1 <- S1[1:29,1:29] * lambda[1]  + S1[1:29,30:58] * lambda[2]
     b[2:30] ~ dmnorm(zero[2:30],K1) 
     
-    ## smoothing parameter priors CHECK...
+    ## smoothing parameter priors.
     for (i in 1:2) {
-      #lambda[i] ~ dgamma(.05,.005)
-        lambda[i] ~ dunif(0,1)
-      rho[i] <- log(lambda[i])
+    lambda[i] ~ dunif(0,25)
+    rho[i] <- log(lambda[i])
     }
 
     #Different observation models depending on the data:
@@ -114,11 +118,11 @@ cat("
     
     #Priors
     mean.p.ct ~ dunif(0, 1)
-    alpha.ct <- logit(mean.p.ct)
-    intercept.ct ~ dnorm(0,0.001)
+    alpha.ct <- cloglog(mean.p.ct)
     theta.water ~ dnorm(0,0.001)
     alpha.month ~ dnorm(0,0.001)
-    
+    intercept.ct ~ dnorm(0,0.001)
+
     # Intercepts availability probability
     for(j in 1:n.1kmGrids){
     int.theta[j] ~ dunif(0,1) 
@@ -127,7 +131,7 @@ cat("
     #Model (multi-scale occupancy model using cloglog so we are esssentially modelling abundance!)
     for (i in 1:n.CameraTrapSites) { 
     z.ct[i] ~ dbern(psi[i])
-    cloglog(psi[i]) <- intercept.ct + abund.effect[site.ct[i]]
+    cloglog(psi[i]) <- intercept.ct  + abund.effect[site.ct[i]]
     
     #availbility for detection model
     for (j in 1:n.1kmGrids){
@@ -149,8 +153,8 @@ cat("
     # MODEL NUMBER OF INDIVIDUALS DETECTED
 
     # PRIORS
-    intercept.lt ~ dunif(-10, 10)
-    
+    intercept.lt ~ dnorm(0,0.001)
+
     #fit model
     for (j in 1:n.Transect){
       for (t in 1:n.Yrs){
@@ -175,13 +179,9 @@ cat("
     pi <- 3.141593
     
     #Priors
-    #mean.p.lt ~ dunif(0, 1)
-    #alpha.lt <- logit(mean.p.lt)
     sigma ~ dunif(50,140)
     b.d.0 ~ dunif(0,20)
-    #b.d.GroupSize ~ dnorm(0,0.0001)#no effect
-    #b.d.Forest ~ dnorm(0,0.0001)#no effect
-    
+
     ##### Begin model for *all detections*
     
     for( i in 1:n.Detections){
@@ -225,16 +225,25 @@ cat("
     ",fill = TRUE)
 sink()
 
+###############
+#Run the model#
+###############
+
 source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
 
 #https://www.r-bloggers.com/spatial-autocorrelation-of-errors-in-jags/
 
-params <- c("intercept.lt","averagePa","beta.forest","beta.military","beta.villages","beta.fields",
+params <- c("intercept.lt","intercept.ct","lambda",
+            "rho","averagePa","beta.forest","beta.military",
+            #"beta.villages","beta.fields",
             "avDensity","totDensity","Density")
 
-inits <- function(){list(sigma=runif(1,80,150))}
+inits <- function(){list(sigma=runif(1,80,150),
+                         intercept.lt=runif(1,2,6),
+                         intercept.ct=runif(1,10,15))}
 
-ni<-50000
+ni<-100000
+nb<-10000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped_spline.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
@@ -246,7 +255,7 @@ ggs_traceplot(ggs(as.mcmc(out1)))
 
 ########################################################################################
 
-#Plotting predictions just on line transects
+#Plotting predictions
 
 setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment")
 myGridDF3km$fits<-out1$mean$Density
@@ -256,9 +265,6 @@ png(file="combinedModel_grouped_spline.png")
 plot(predRaster)
 plot(sws,add=T)
 dev.off()
-
-#get total number of predicted deer
-sum(getValues(predRaster),na.rm=T)#1552.455
 
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
