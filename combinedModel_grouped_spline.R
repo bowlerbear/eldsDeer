@@ -22,6 +22,7 @@ library(mgcv)
 jags.ready <- jagam(Deer~1+s(x, y), 
                     data=myGridDF3km, 
                     family="poisson", 
+                    sp.prior="log.uniform",
                     file="jagam.txt")
 
 
@@ -108,8 +109,8 @@ cat("
     
     ## smoothing parameter priors.
     for (i in 1:2) {
-    lambda[i] ~ dunif(0,25)
-    rho[i] <- log(lambda[i])
+      rho[i] ~ dunif(-3,3)
+      lambda[i] <- exp(rho[i])
     }
 
     #Different observation models depending on the data:
@@ -122,6 +123,7 @@ cat("
     theta.water ~ dnorm(0,0.001)
     alpha.month ~ dnorm(0,0.001)
     intercept.ct ~ dnorm(0,0.001)
+    abund.slope ~ dnorm(0,0.001)
 
     # Intercepts availability probability
     for(j in 1:n.1kmGrids){
@@ -143,7 +145,7 @@ cat("
     for (k in 1:n.reps) { # Loop over replicate surveys
     y.ct[i,j,k] ~ dbern(mu.ct[i,j,k])    
     mu.ct[i,j,k] <- a[i,j] * p.ct[i,j,k]
-    cloglog(p.ct[i,j,k]) <- alpha.ct + alpha.month * Month[i,j,k] + abund.effect[site.ct[i]]
+    cloglog(p.ct[i,j,k]) <- alpha.ct + alpha.month * Month[i,j,k] + abund.slope * abund.effect[site.ct[i]]
     }
     }
     }
@@ -234,7 +236,7 @@ source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
 #https://www.r-bloggers.com/spatial-autocorrelation-of-errors-in-jags/
 
 params <- c("intercept.lt","intercept.ct","lambda",
-            "rho","averagePa","beta.forest","beta.military",
+            "rho","averagePa","beta.forest","beta.military","abund.slope",
             #"beta.villages","beta.fields",
             "avDensity","totDensity","Density")
 
@@ -242,8 +244,8 @@ inits <- function(){list(sigma=runif(1,80,150),
                          intercept.lt=runif(1,2,6),
                          intercept.ct=runif(1,10,15))}
 
-ni<-100000
-nb<-10000
+ni<-40000
+nb<-4000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped_spline.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
@@ -251,7 +253,13 @@ print(out1,2)
 traceplot(out1)
 
 library(ggmcmc)   
-ggs_traceplot(ggs(as.mcmc(out1)))
+out2<-ggs(out1$samples)
+ggs_traceplot(filter(out2,Parameter%in%c("intercept.lt","intercept.ct","totDensity")))
+
+#Calculate a Bayesian p-value
+#pp.check(out1,)
+#separately for each data type????
+#fits vs residuals
 
 ########################################################################################
 
