@@ -522,3 +522,10 @@ eff.pres <- allEffects(glm1)
 plot(eff.pres)
 
 ################################################################################################
+
+#get centroids of the grid cells
+#plot(myGrid3km)
+tempDF<-as.data.frame(myGrid3km,xy=T)
+myGridDF3km<-merge(myGridDF3km,tempDF,by.x="Grid3km",by.y="layer")
+
+###############################################################################################
