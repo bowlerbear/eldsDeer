@@ -5,16 +5,26 @@ source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eld
 ######################################################################################
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 
+#Use the JAGAM function to get the BUGS code for the spline
+#http://www.petrkeil.com/?p=2385
+setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
+library(mgcv)
+jags.ready <- jagam(fits~1+s(x, y), 
+                    data=subset(myGridDF3km,!is.na(Deer.lt)), 
+                    family="poisson", 
+                    sp.prior="log.uniform",
+                    file="jagam.lt.txt")
+
+#get the data bits we need from jags data
+X = jags.ready$jags.data$X
+S1 = jags.ready$jags.data$S1
+zero = jags.ready$jags.data$zero
+
 #######################
 #Compile data for model#
 ########################
 
-bugs.data<-list(#camera trap data
-                site.ct = sites.ct,
-                y.ct = y,
-                n.CameraTrapSites = dim(y)[1],
-                n.reps = dim(y)[3],
-                n.1kmGrids = dim(y)[2],
+bugs.data<-list(
                 #line transect data
                 site.lt = sites.lt,
                 n.Transect = length(unique(datafile$Transect)), 
@@ -33,16 +43,16 @@ bugs.data<-list(#camera trap data
                 TransYrIdx = TransYrIdx,
                 zeros.dist = rep(0,nrow(detectionInfo)),
                 transectAreas = transectAreas,
-                #total number of sites  
-                n.sites = length(unique(myGridDF3km$Grid3km)),
                 #covariates
-                Forest=forestcoverB,
+                Forest=as.numeric(log(sqrt(forestcover+1)))[sites.lt],
                 #Forest2=forestcover2,
-                #Fields=as.numeric(scale(sqrt(fields+1))),
-                Military=ifelse(military>0,1,0),
-                #Villages=as.numeric(scale(sqrt(villages+1))),
-                Water=waterMatrix,
-                Month=monthMatrix)
+                Fields=as.numeric(scale(sqrt(fields+1))),
+                Military=ifelse(military>0,1,0)[sites.lt],
+                Villages=as.numeric(scale(sqrt(villages+1))),
+                #spatial covariates
+                X = X,
+                S1 = S1,
+                zero = zero)
 
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 sink("combinedModel_grouped_spline.txt")
@@ -52,38 +62,67 @@ cat("
     #Model of factors affecting abundance
     beta.forest ~ dnorm(0,0.001)  
     beta.military ~ dnorm(0,0.001)
-    #beta.fields ~ dnorm(0,0.001)
-    #beta.villages ~ dnorm(0,0.001)
+    beta.fields ~ dnorm(0,0.001)
+    beta.villages ~ dnorm(0,0.001)
     
-    for (i in 1:n.sites) { #across all sites   
-      abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i]
-    }
-    
-    #(2) Line transect data:
+    # Line transect data:
 
     # MODEL NUMBER OF INDIVIDUALS DETECTED
 
     # PRIORS
     intercept.lt ~ dnorm(0,0.001)
 
+    #if including a spline?
+    eta <- X %*% b 
+    for (i in 1:1) { b[i] ~ dnorm(0,0.001) }
+    ## prior for s(x,y)... 
+    K1 <- S1[1:29,1:29] * lambda[1]  + S1[1:29,30:58] * lambda[2]
+    b[2:30] ~ dmnorm(zero[2:30],K1) 
+    ## smoothing parameter priors CHECK...
+    for (i in 1:2) {
+      rho[i] ~ dunif(-3,3)
+      lambda[i] <- exp(rho[i])
+    }
+
+    #random year effect
+    year.s.sd ~ dunif(0,10)
+    year.s.tau <- pow(year.s.sd,-2)
+    for(t in 1:n.Yrs){
+      random.s.year[t] ~ dunif(0,year.s.tau)
+    }
+
+    #random site effect
+    site.s.sd ~ dunif(0,10)
+    site.s.tau <- pow(site.s.sd,-2)
+    for(j in 1:n.Transect){
+    random.s.site[j] ~ dunif(0,site.s.tau)
+    }
+
     #fit model
     for (j in 1:n.Transect){
       for (t in 1:n.Yrs){
         n[j,t] ~ dpois(nHat[j,t]*transectAreas[j]*averagePa) 
-        log(nHat[j,t]) <- intercept.lt + abund.effect[site.lt[j]]
-    }
+          
+        #(1)with covariates
+        #log(nHat[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
+        #                  beta.fields * Fields[j] + beta.villages * Villages[j] + 
+        #                  random.s.year[t] + random.s.site[j]
+        
+        #(2)just random effects
+        #log(nHat[j,t]) <- intercept.lt + beta.forest * Forest[j] + 
+        #                  random.s.year[t] + random.s.site[j]
+
+        #(3)with spline
+        log(nHat[j,t]) <- eta[j] + random.s.year[t]
+        
+      }
     }
 
-    #predict density (number of indivdiuals per grid cell) for all sites 
-    #using the abundance effect and average group size
-    #and the intercept of the line transect model for number of groups
-    for(i in 1:n.sites){
-      log(Density[i]) <- intercept.lt + abund.effect[i]
+    for(j in 1:n.Transect){
+      #get predicted total across whole area
+      n.transect[j] <-mean(nHat[j,])#mean across years
     }
-
-    #get predicted total across whole area
-    avDensity <- mean(Density)
-    totDensity <- sum(Density)
+      totDensity <- sum(n.transect)
 
     # DETECTABILITY COMPONENT#####
 
@@ -138,24 +177,24 @@ sink()
 
 source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
 
-#https://www.r-bloggers.com/spatial-autocorrelation-of-errors-in-jags/
-
 params <- c("intercept.lt",
             "averagePa","beta.forest","beta.military",
+            "beta.fields","beta.villages",
             #"beta.villages","beta.fields",
-            "avDensity","totDensity","Density")
+            "site.s.sd","year.s.sd",
+            "totDensity","n.transect")
 
-inits <- function(){list(sigma=runif(1,80,150),
-                         intercept.lt=runif(1,2,6))}
+inits <- function(){list(sigma=runif(1,80,150))}
 
-ni<-20000
-nb<-4000
+ni<-200000
+nb<-40000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped_spline.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
 print(out1,2)
-traceplot(out1)
 
+#Plots
+traceplot(out1)
 library(ggmcmc)   
 ggs_traceplot(ggs(as.mcmc(out1)))
 
@@ -164,20 +203,22 @@ ggs_traceplot(ggs(as.mcmc(out1)))
 #Plotting predictions just on line transects
 
 setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment")
-myGridDF3km$fits<-out1$mean$Density
+
+#add fits
+myGridDF3km$fits<-NA
+myGridDF3km$fits[sites.lt]<-out1$mean$n.transect
+
+#plot them
 predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
 predRaster<-mask(predRaster,sws)
-png(file="combinedModel_grouped_spline_noCameraTrap.png")
+png(file="combinedModel_grouped_spline_noCameraTrap(3).png")
 plot(predRaster)
 plot(sws,add=T)
 dev.off()
 
-#get total number of predicted deer
-sum(getValues(predRaster),na.rm=T)
-
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
 coefTable$Parameter<-row.names(out1$summary)
-save(coefTable,file="coefTable_combinedModel_grouped_spline_noCameraTrap.RData")
+save(coefTable,file="coefTable_combinedModel_grouped_spline_noCameraTrap(3).RData")
 
 #########################################################################################
