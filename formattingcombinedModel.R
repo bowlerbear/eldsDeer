@@ -277,7 +277,7 @@ nowaterData<-locations$ID[locations$WATER.POINT==""]
 cameraTraps<-subset(cameraTraps,!ID%in%nowaterData)
 
 #combine water point or salt lick as an attractor
-attractorDF<-unique(cameraTraps[,c("ID","Grid1km","WATER.POINT","SALT.LICK")])
+attractorDF<-unique(cameraTraps[,c("ID","Grid1km","LURE.TYPE","WATER.POINT","SALT.LICK")])
 
 #check attractor is constant within a grid cell
 out<-ddply(attractorDF,.(Grid1km),summarise,nu=length(unique(WATER.POINT)))
@@ -286,6 +286,9 @@ dups<-subset(attractorDF,Grid1km%in%out$Grid1km[out$nu==2])
 
 #first drop those with 'no' water points
 cameraTraps<-subset(cameraTraps,!cameraTraps$ID%in%dups$ID[dups$WATER.POINT=="No"])
+
+#also add a yes if there is a salt lick
+cameraTraps$WATER.POINT[cameraTraps$SALT.LICK=="Yes"&!is.na(cameraTraps$SALT.LICK)]<-"Yes"
 
 #recount Day so it goes over multiple years/cameras in the same grid cells
 cameraTraps<-ddply(cameraTraps,.(Grid1km),function(x){
