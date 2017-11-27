@@ -290,6 +290,9 @@ cameraTraps<-subset(cameraTraps,!cameraTraps$ID%in%dups$ID[dups$WATER.POINT=="No
 #also add a yes if there is a salt lick
 cameraTraps$WATER.POINT[cameraTraps$SALT.LICK=="Yes"&!is.na(cameraTraps$SALT.LICK)]<-"Yes"
 
+#in each 1km grid - how many sites were there
+#ddply(cameraTraps,.(Grid1km),summarise,nu=length(unique(ID))) - usually just 1
+
 #recount Day so it goes over multiple years/cameras in the same grid cells
 cameraTraps<-ddply(cameraTraps,.(Grid1km),function(x){
   Day=1:nrow(x)
@@ -308,7 +311,7 @@ cameraTraps<-ddply(cameraTraps,.(Grid3km),function(x){
 obsMatrix<-acast(cameraTraps,Grid3km~GridRep~Day2,value.var="PA")
 dim(obsMatrix)
 
-nu<-60
+nu<-30
 y<-obsMatrix[,,1:nu]
 
 #water info

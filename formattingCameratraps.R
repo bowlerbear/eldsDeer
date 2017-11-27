@@ -203,6 +203,9 @@ surveys<-ddply(surveys,.(ID),function(x){
   }
 })
 
+#check wheter they took a time lapse photo
+#check with John  - discard
+
 #####################################################################################################
 
 #get human data??
