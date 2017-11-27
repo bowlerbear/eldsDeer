@@ -9,16 +9,16 @@ setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 #http://www.petrkeil.com/?p=2385
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 library(mgcv)
-jags.ready <- jagam(fits~1+s(x, y), 
+jags.ready <- jagam(Deer.lt~1+s(x, y), 
                     data=subset(myGridDF3km,!is.na(Deer.lt)), 
                     family="poisson", 
                     sp.prior="log.uniform",
                     file="jagam.lt.txt")
 
 #get the data bits we need from jags data
-X = jags.ready$jags.data$X
+X = jags.ready$jags.data$X[,-1]
 S1 = jags.ready$jags.data$S1
-zero = jags.ready$jags.data$zero
+zero = jags.ready$jags.data$zero[-1]
 
 #######################
 #Compile data for model#
@@ -44,7 +44,8 @@ bugs.data<-list(
                 zeros.dist = rep(0,nrow(detectionInfo)),
                 transectAreas = transectAreas,
                 #covariates
-                Forest=as.numeric(log(sqrt(forestcover+1)))[sites.lt],
+                Forest=as.numeric(scale(log(forestcover+1)))[sites.lt],
+                ForestB = forestcoverB,
                 #Forest2=forestcover2,
                 Fields=as.numeric(scale(sqrt(fields+1))),
                 Military=ifelse(military>0,1,0)[sites.lt],
@@ -74,10 +75,9 @@ cat("
 
     #if including a spline?
     eta <- X %*% b 
-    for (i in 1:1) { b[i] ~ dnorm(0,0.001) }
     ## prior for s(x,y)... 
     K1 <- S1[1:29,1:29] * lambda[1]  + S1[1:29,30:58] * lambda[2]
-    b[2:30] ~ dmnorm(zero[2:30],K1) 
+    b[1:29] ~ dmnorm(zero[1:29],K1) 
     ## smoothing parameter priors CHECK...
     for (i in 1:2) {
       rho[i] ~ dunif(-3,3)
@@ -106,15 +106,14 @@ cat("
         #(1)with covariates
         #log(nHat[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
         #                  beta.fields * Fields[j] + beta.villages * Villages[j] + 
-        #                  random.s.year[t] + random.s.site[j]
+        #                  random.s.year[t] 
         
         #(2)just random effects
         #log(nHat[j,t]) <- intercept.lt + beta.forest * Forest[j] + 
         #                  random.s.year[t] + random.s.site[j]
 
         #(3)with spline
-        log(nHat[j,t]) <- eta[j] + random.s.year[t]
-        
+        log(nHat[j,t]) <- intercept.lt + eta[j]
       }
     }
 
@@ -186,8 +185,8 @@ params <- c("intercept.lt",
 
 inits <- function(){list(sigma=runif(1,80,150))}
 
-ni<-200000
-nb<-40000
+ni<-500000
+nb<-100000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped_spline.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 

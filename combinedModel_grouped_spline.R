@@ -8,11 +8,9 @@ source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eld
 
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 
-#get centroids of the grid cells
-plot(myGrid3km)
-tempDF<-as.data.frame(myGrid3km,xy=T)
-myGridDF3km<-merge(myGridDF3km,tempDF,by.x="Grid3km",by.y="layer")
-predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","Deer")])
+#or load already
+load("myGridDF3km_wFits.RData")
+predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
 plot(predRaster)
 
 #Use the JAGAM function to get the BUGS code for the spline
@@ -62,7 +60,7 @@ bugs.data<-list(#camera trap data
                 #total number of sites  
                 n.sites = length(unique(myGridDF3km$Grid3km)),
                 #covariates
-                Forest=forestcoverB,
+                Forest=as.numeric(scale(log(forestcover+1))),
                 #Forest2=forestcover2,
                 #Fields=as.numeric(scale(sqrt(fields+1))),
                 Military=ifelse(military>0,1,0),
@@ -93,6 +91,7 @@ cat("
     eta <- X %*% b ## linear predictor for the spline
     
     for (i in 1:n.sites) { #across all sites   
+      #(1)
       abund.effect[i] <-  eta[i] + beta.forest * Forest[i] + beta.military * Military[i]
     }
 
@@ -161,7 +160,7 @@ cat("
     for (j in 1:n.Transect){
       for (t in 1:n.Yrs){
         n[j,t] ~ dpois(nHat[j,t]*transectAreas[j]*averagePa) 
-        log(nHat[j,t]) <- intercept.lt + abund.effect[site.lt[j]]
+        log(nHat[j,t]) <- abund.effect[site.lt[j]]
     }
     }
 
@@ -169,7 +168,7 @@ cat("
     #using the abundance effect and average group size
     #and the intercept of the line transect model for number of groups
     for(i in 1:n.sites){
-      log(Density[i]) <- intercept.lt + abund.effect[i]
+      log(Density[i]) <- abund.effect[i]
     }
 
     #get predicted total across whole area
@@ -244,8 +243,8 @@ inits <- function(){list(sigma=runif(1,80,150),
                          intercept.lt=runif(1,2,6),
                          intercept.ct=runif(1,10,15))}
 
-ni<-40000
-nb<-4000
+ni<-50000
+nb<-10000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped_spline.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
@@ -269,7 +268,7 @@ setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment")
 myGridDF3km$fits<-out1$mean$Density
 predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
 predRaster<-mask(predRaster,sws)
-png(file="combinedModel_grouped_spline.png")
+png(file="combinedModel_grouped_spline(1).png")
 plot(predRaster)
 plot(sws,add=T)
 dev.off()
@@ -277,6 +276,6 @@ dev.off()
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
 coefTable$Parameter<-row.names(out1$summary)
-save(coefTable,file="coefTable_combinedModel_grouped_spline.RData")
+save(coefTable,file="coefTable_combinedModel_grouped_spline(1).RData")
 
 #########################################################################################
