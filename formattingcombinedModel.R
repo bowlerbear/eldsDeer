@@ -458,13 +458,6 @@ head(myGridDF3km)
 
 #Camera data is first and then the line transects
 myGridDF3km<-subset(myGridDF3km,!is.na(Deer.ct)|!is.na(Deer.lt))
-forestcover<-myGridDF3km$ForestCover
-forestcoverB<-ifelse(forestcover<40,0,1)
-military<-myGridDF3km$Military
-militaryB<-ifelse(military>0,1,0)
-fields<-myGridDF3km$Fields
-fields<-sqrt(fields+1)
-villages<-myGridDF3km$Villages
 presenceRecord<-ifelse(myGridDF3km$Deer==1&!is.na(myGridDF3km$Deer),1,0)
 
 #relabel the site id
@@ -474,29 +467,72 @@ sites.ct<-sapply(sites.ct,function(x)myGridDF3km$Grid[which(myGridDF3km$Grid3km=
 
 #get transect effort
 
-#using a buffer
-library(rgeos)
-transectsProj<-spTransform(transects,CRS("+proj=eck4"))
-transectsProj_Buffered<-gBuffer(transectsProj,width=250)
-transects_Buffered<-spTransform(transectsProj_Buffered,crs(myGrid3km))
+#read in transects for each year
+tdir<-"C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Reports/Copies of SWS Census reports/Copies of SWS Census reports/2016/georeferenced"
+transect2016<-readOGR(tdir,layer="TransectLines2016")
+tdir<-"C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Reports/Copies of SWS Census reports/Copies of SWS Census reports/2015/georeferenced"
+transect2015<-readOGR(tdir,layer="TransectLines2015")
+tdir<-"C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Reports/Copies of SWS Census reports/Copies of SWS Census reports/2014/georeferenced"
+transect2014<-readOGR(tdir,layer="TransectLines2014")
+
 plot(myGrid3km)
-plot(transects_Buffered,add=T)
-#get area of overlap
-transectOverlap<-data.frame(extract(myGrid3km,transects_Buffered,weights=T,normalizeWeights=F))
+plot(transect2014,col="blue",add=T)
+plot(transect2015,col="red",add=T)
+plot(transect2016,col="black",add=T)
 
-#add to dataset
-myGridDF$Overlap<-transectOverlap$weight[match(myGridDF$Grid3km,transectOverlap$value)]
-overlapRaster<-rasterFromXYZ(myGridDF[,c("x","y","Overlap")])
-plot(overlapRaster)
-#scale overlap between 0 and 3...?
-myGridDFOverlap<-subset(myGridDF,!is.na(Overlap))
-myGridDFOverlap$Overlap<-myGridDFOverlap$Overlap*9
-transectAreas<-myGridDFOverlap$Overlap[match(gridTranslate$Grid,myGridDFOverlap$Grid3km)]
+# Intersect lines with raster "polygons" and add length to new lines segments
+#"+proj=longlat +datum=WGS84"
+#"+proj=eck4"
+#2016
+library(rgeos)
+myGridproj<-projectRaster(myGrid,crs=CRS("+proj=longlat +datum=WGS84"))
+transect2016proj<-spTransform(transect2016,CRS("+proj=longlat +datum=WGS84"))
+rsp <- rasterToPolygons(myGridproj)
+rp <- intersect(transect2016proj, rsp)
+rp$length <- gLength(rp, byid=TRUE) 
+x <- tapply(rp$length, rp$layer, sum)
+r2016 <- raster(myGrid)
+r2016[as.integer(names(x))] <- x
+plot(r2016)
+#we now have the length that each transect traverses each grid cell by
+#2015
+myGridproj<-projectRaster(myGrid,crs=CRS("+proj=longlat +datum=WGS84"))
+transect2015proj<-spTransform(transect2015,CRS("+proj=longlat +datum=WGS84"))
+rsp <- rasterToPolygons(myGridproj)
+rp <- intersect(transect2015proj, rsp)
+rp$length <- gLength(rp, byid=TRUE) 
+x <- tapply(rp$length, rp$layer, sum)
+r2015 <- raster(myGrid)
+r2015[as.integer(names(x))] <- x
+plot(r2015)
+#2014
+myGridproj<-projectRaster(myGrid,crs=CRS("+proj=longlat +datum=WGS84"))
+transect2014proj<-spTransform(transect2014,CRS("+proj=longlat +datum=WGS84"))
+rsp <- rasterToPolygons(myGridproj)
+rp <- intersect(transect2014proj, rsp)
+rp$length <- gLength(rp, byid=TRUE) 
+x <- tapply(rp$length, rp$layer, sum)
+r2014 <- raster(myGrid)
+r2014[as.integer(names(x))] <- x
+plot(r2014)
 
-#or based on number of 1km grids being sampled
-transectAreas<-myGridDF3km$TransectNu[match(sites.lt,myGridDF3km$Grid)]
-transectAreas[transectAreas==0]<-1
-transectAreas<-transectAreas/9
+#add to 
+myGridDF$t2014<-getValues(r2014)/0.0109
+myGridDF$t2015<-getValues(r2015)/0.0109
+myGridDF$t2016<-getValues(r2016)/0.0109
+
+sort(unique(myGridDF$t2016,na.rm=T))
+
+#get totdal per Grid 3km
+transectLengths<-ddply(myGridDF,.(Grid3km),summarise,
+                       t2016=sum(t2016,na.rm=T),
+                       t2015=sum(t2015,na.rm=T),
+                       t2014=sum(t2014,na.rm=T))
+
+#add to data frame
+myGridDF3km$t2014<-transectLengths$t2014[match(myGridDF3km$Grid3km,transectLengths$Grid3km)]
+myGridDF3km$t2015<-transectLengths$t2015[match(myGridDF3km$Grid3km,transectLengths$Grid3km)]
+myGridDF3km$t2016<-transectLengths$t2016[match(myGridDF3km$Grid3km,transectLengths$Grid3km)]
 
 #################################################################################################
 
@@ -505,6 +541,7 @@ cor.test(myGridDF3km$Villages,myGridDF3km$Fields)#0.4470563
 hist(sqrt(myGridDF3km$Villages+1))
 hist(sqrt(myGridDF3km$Fields+1))
 cor.test(sqrt(myGridDF3km$Villages+1),sqrt(myGridDF3km$Fields+1))#0.5031411 
+
 #################################################################################################
 
 #what variables should be included and how??
