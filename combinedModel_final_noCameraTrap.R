@@ -9,26 +9,26 @@ setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 #http://www.petrkeil.com/?p=2385
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 library(mgcv)
-jags.ready <- jagam(Deer.lt~1+s(x, y), 
+jags.ready <- jagam(Deer.lt~1+s(x, y,k=10), 
                     data=subset(myGridDF3km,!is.na(Deer.lt)), 
                     family="poisson", 
                     sp.prior="log.uniform",
                     file="jagam.lt.txt")
 
 #get the data bits we need from jags data
-X = jags.ready$jags.data$X[,-1]
+X = jags.ready$jags.data$X
 S1 = jags.ready$jags.data$S1
-zero = jags.ready$jags.data$zero[-1]
-
+zero = jags.ready$jags.data$zero
 
 #fit model
 myGridDF3km$Deer.lt[sites.lt]
 myGridDF3km$DeerCounts.lt<-NA
 myGridDF3km$DeerCounts.lt[sites.lt]<-round(apply(groupInfo,1,mean))
 
-model1 <- gam(DeerCounts.lt~1+s(x, y), 
+model1 <- gam(DeerCounts.lt~1+s(x, y,k=30), 
                     data=subset(myGridDF3km,!is.na(Deer.lt)), 
                     family="poisson")
+summary(model1)
 
 #smoothing terms are significant...
 
@@ -54,14 +54,20 @@ bugs.data<-list(
                 ty.combos = transectInfo,
                 TransYrIdx = TransYrIdx,
                 zeros.dist = rep(0,nrow(detectionInfo)),
-                transectAreas = transectAreas,
+                transectLengths = myGridDF3km[sites.lt,c("t2014","t2015","t2016")],
                 #covariates
                 Forest=as.numeric(scale(log(myGridDF3km$ForestCover+1)))[sites.lt],
-                ForestB = forestcoverB,
+                ForestB=myGridDF3km$ForestCoverF[sites.lt],
                 #Forest2=forestcover2,
                 Fields=as.numeric(scale(sqrt(myGridDF3km$Fields+1)))[sites.lt],
                 Military=myGridDF3km$MilitaryF[sites.lt],
                 Villages=as.numeric(scale(sqrt(myGridDF3km$Villages+1)))[sites.lt],
+                #total number of sites  
+                n.sites = length(unique(myGridDF3km$Grid3km)),
+                ForestB_All=myGridDF3km$ForestCoverF,
+                Forest_All=as.numeric(scale(log(myGridDF3km$ForestCover+1))),
+                Villages_All=as.numeric(scale(sqrt(myGridDF3km$Villages+1))),
+                Military_All=myGridDF3km$MilitaryF,
                 #spatial covariates
                 X = X,
                 S1 = S1,
@@ -110,12 +116,17 @@ cat("
 
     #if including a spline?
     eta <- X %*% b 
+
+    ## Parametric effect priors CHECK tau=1/10^2 is appropriate!
+    for (i in 1:1) { b[i] ~ dnorm(0,0.01) }
+    
     ## prior for s(x,y)... 
-    K1 <- S1[1:29,1:29] * lambda[1]  + S1[1:29,30:58] * lambda[2]
-    b[1:29] ~ dmnorm(zero[1:29],K1) 
-    ## smoothing parameter priors CHECK...
+    K1 <- S1[1:9,1:9] * lambda[1]  + S1[1:9,10:18] * lambda[2]
+    b[2:10] ~ dmnorm(zero[2:10],K1) 
+    
+    ## smoothing parameter priors
     for (i in 1:2) {
-      rho[i] ~ dunif(-1,1)
+      rho[i] ~ dunif(-3,3)
       lambda[i] <- exp(rho[i])
     }
 
@@ -137,22 +148,34 @@ cat("
     for (j in 1:n.Transect){
       for (t in 1:n.Yrs){
         n[j,t] ~ dpois(nHat[j,t]) 
-        nHat[j,t] <- Density[j,t]*transectAreas[j]*averagePa
-
-        #(1)with covariates
+        nHat[j,t] <- (Density[j,t])*surveyArea[j,t]
+        surveyArea[j,t]<-(transectLengths[j,t]*(ESW.constant/1000)*2)/9
+        
+        #(1)with all covariates
         #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
         #                  beta.fields * Fields[j] + beta.villages * Villages[j] 
 
         #(2)just random effects
-        log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + 
-                          random.s.year[t] + random.s.site[j]
+        #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + 
+        #                  random.s.year[t] + random.s.site[j]
 
         #(3)with spline
-        #log(Density[j,t]) <- intercept.lt + eta[j]
+        #log(Density[j,t]) <- eta[j]
         
         #(4) with spline and covariates
         #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
-        #                      beta.fields * Fields[j] + beta.villages * Villages[j] + eta[j]
+        #                      beta.villages * Villages[j]+eta[j]
+        
+        #(5)#with only significant covariates
+        log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
+                              beta.villages * Villages[j]
+        
+        #(6)with binary forest cover
+        #log(Density[j,t]) <- intercept.lt + beta.forest * ForestB[j] + beta.military * Military[j]
+
+        #(7)with forest cover and military
+        #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j]
+
       }
     }
 
@@ -160,7 +183,7 @@ cat("
     gp<-exp(intercept.groupsize)
     for(j in 1:n.Transect){
       #get predicted total across whole area
-      n.transect[j] <-mean(Density[j,]*gp)#mean across years
+      n.transect[j] <-mean(Density[j,]*gp)#mean across years 
     }
       totDensity <- sum(n.transect)
 
@@ -192,15 +215,18 @@ cat("
     #Priors
     sigma ~ dunif(50,140)
     b.d.0 ~ dunif(0,20)
+    b.group.size ~ dnorm(0,0.001)
 
     ##### Begin model for *all detections*
     
     for( i in 1:n.Detections){
     
     #MODELS FOR HALF-NORMAL DETECTION PARAMETER SIGMA
-    mu.df[i] <- b.d.0
-    
+    #mu.df[i] <- b.d.0
+    mu.df[i] <- b.d.0 + b.group.size * d.Groupsize[i]
+
     # estimate of sd and var, given coeffs above
+    
     sig.df[i] <- exp(mu.df[i])
     sig2.df[i] <- sig.df[i]*sig.df[i]
     
@@ -232,23 +258,35 @@ cat("
     ESW.constant <- max(ESW.j)
     averagePa <- ESW.constant/W
 
+    #predict over total area
+    #for(j in 1:n.sites){
+    #  log(predDensity[j]) <- intercept.lt + beta.forest * Forest_All[j] + 
+    #                          beta.military * Military_All[j] +
+    #                          beta.villages * Villages_All[j]
+    #  totalIndiv[j] <- predDensity[j]*gp
+    #}
+
+    #totalPredDensity <- sum(totalIndiv)
+    
     }
     ",fill = TRUE)
 sink()
 
 source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
 
-params <- c("intercept.lt","intercept.groupsize",
+params <- c("ESW.constant","b.group.size",
+            "rho","intercept.lt","intercept.groupsize",
             "averagePa","beta.forest","beta.military",
             "beta.fields","beta.villages",
             "site.s.sd","year.s.sd",
+            "totalPredDensity",
             "totDensity","n.transect","nHat",
-            "fit","fit.new")
+            "fit","fit.new","totalIndiv")
 
 inits <- function(){list(sigma=runif(1,80,150))}
 
-ni<-50000
-nb<-10000
+ni<-200000
+nb<-50000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped_spline.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
@@ -264,7 +302,6 @@ ggs_traceplot(ggs(as.mcmc(out1)))
 #Plotting predictions just on line transects
 
 setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment")
-
 #add fits
 myGridDF3km$fits<-NA
 myGridDF3km$fits[sites.lt]<-out1$mean$n.transect
@@ -272,7 +309,7 @@ myGridDF3km$fits[sites.lt]<-out1$mean$n.transect
 #plot them
 predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
 predRaster<-mask(predRaster,sws)
-png(file="combinedModel_grouped_spline_noCameraTrap(2).png")
+png(file="combinedModel_grouped_spline_noCameraTrap(3).png")
 plot(predRaster)
 plot(sws,add=T)
 dev.off()
@@ -280,7 +317,7 @@ dev.off()
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
 coefTable$Parameter<-row.names(out1$summary)
-save(coefTable,file="coefTable_combinedModel_grouped_spline_noCameraTrap(2).RData")
+save(coefTable,file="coefTable_combinedModel_grouped_spline_noCameraTrap(3).RData")
 
 #compare n and nHat
 nMelt<-melt(groupInfo)
@@ -290,9 +327,23 @@ qplot(nMelt$value,nHatMelt$value)
 #save similations
 simslistDF<-list(fit=out1$sims.list$fit,fit.new=out1$sims.list$fit.new)
 mean(simslistDF$fit.new>simslistDF$fit)
-#1 - 0.0023383
-#2 - 0.2778167
-#3 - 0.3454833
-#4 - 0.0021833
+#1 - 0.04743
+#2 - 0.13625
+#3 - 0.46431
+#4 - 0.00218
+#5 - 0.05221
+#6 - 0.002555556
+#7 - 0.03
+
+#########################################################################################
+
+#for predictions across the whole area
+myGridDF3km$fits<-out1$mean$totalIndiv
+predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
+predRaster<-mask(predRaster,sws)
+png(file="combinedModel_grouped_spline_noCameraTrap(5).png")
+plot(predRaster)
+plot(sws,add=T)
+dev.off()
 
 #########################################################################################
