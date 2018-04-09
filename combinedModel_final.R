@@ -86,30 +86,11 @@ cat("
 
     #Common model
     for (i in 1:n.sites) { #across all sites   
-      #(1)
-      #abund.effect[i] <-  eta[i] + beta.forest * Forest[i] + beta.military * Military[i]
-      #(2)
-      #abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i]
-      #(3)
-      #abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
-      #                    beta.fields * Fields[i] + beta.villages * Villages[i]
-
-      #(4)
-      #abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
-      #                    beta.fields * Fields[i] + beta.villages * Villages[i] +
-      #                    eta[i]
-      #(5)
+      #model with covariates
       abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
                            beta.villages * Villages[i]
-                          
-      #(6)
+      #model with spline
       #abund.effect[i] <-  eta[i]
-      #(7)
-      #abund.effect[i] <-  beta.forest * ForestB[i] + beta.military * Military[i]
-      #(8)
-      #abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
-      #                    beta.villages * Villages[i] +
-      #                    beta.forest2 * Forest[i] * Forest [i]
         }
   
       #Model for the spline
@@ -168,12 +149,6 @@ cat("
     # MODEL GROUP SIZE
 
     intercept.groupsize ~ dnorm(0,0.001)
-
-    obs.sd ~ dunif(0,10)
-    obs.tau <- pow(obs.sd,-2)
-    for(i in 1:n.Detections){
-      random.obs[i] ~ dnorm(0,obs.tau)
-    }
     
     #effect of covariates
     #gs.forest ~ dnorm(0,0.001)#no effect
@@ -182,7 +157,7 @@ cat("
     for(i in 1:n.Detections){
     d.Groupsize[i] ~ dpois(exp.GroupSize[i])
     #log(exp.GroupSize[i]) <- intercept.groupsize + gs.forest * d.Forest[i] + 
-    #                          gs.military * d.Military[i] + random.obs[i] 
+    #                          gs.military * d.Military[i]
 
     log(exp.GroupSize[i]) <- intercept.groupsize 
     }
@@ -294,13 +269,13 @@ source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
 
 #https://www.r-bloggers.com/spatial-autocorrelation-of-errors-in-jags/
 
-params <- c("intercept.lt","intercept.ct","lambda","intercept.groupsize",
-            "rho","averagePa","beta.forest","beta.military","abund.slope",
-            "beta.villages","beta.fields",
-            "beta.forest2",    
-            "alpha.month","theta.water","obs.sd",
+params <- c("intercept.lt","intercept.ct","intercept.groupsize",
+            "averagePa","beta.forest","beta.military","abund.slope",
+            "beta.villages",
+            "alpha.month","theta.water",
             "gs.forest","gs.military",
-            "avDensity","totDensity","Density","nHat","fit","fit.new")
+            "avDensity","totDensity","Density",
+            "nHat","fit","fit.new")
 
 zst.ct <- apply(y, 1, max, na.rm=T)
 ast <-apply(y,c(1,2),max,na.rm=T)
@@ -310,18 +285,14 @@ inits <- function(){list(sigma=runif(1,80,150),
                          z.ct = zst.ct, 
                          a = ast)}
 
-ni<-200000
-nb<-50000
+ni<-500000
+nb<-100000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped_spline.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni,parallel=TRUE)
 
 print(out1,2)
 traceplot(out1)
-save(out1,file="out1_final(5)")
-
-library(ggmcmc)   
-out2<-ggs(out1$samples)
-ggs_traceplot(filter(out2,Parameter%in%c("intercept.lt","intercept.ct","totDensity")))
+save(out1,file="out1_final.RData")
 
 ########################################################################################
 
@@ -331,8 +302,7 @@ setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment")
 myGridDF3km$fits<-out1$mean$Density
 predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
 predRaster<-mask(predRaster,sws)
-range(getValues(predRaster),na.rm=T)
-png(file="combinedModel_grouped_spline(5).png")
+png(file="combinedModel_grouped_spline.png")
 plot(predRaster,col=rev(topo.colors(50)),zlim=c(0,160))
 plot(sws,add=T)
 dev.off()
@@ -340,17 +310,10 @@ dev.off()
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
 coefTable$Parameter<-row.names(out1$summary)
-save(coefTable,file="coefTable_combinedModel_grouped_spline(5).RData")
+save(coefTable,file="coefTable_combinedModel_grouped_spline.RData")
 
-#save similations
+#save similations for Bayesian p-value
 simslistDF<-list(fit=out1$sims.list$fit,fit.new=out1$sims.list$fit.new)
 mean(simslistDF$fit.new>simslistDF$fit)
 
-#1, 0.098
-#2,  0.10085
-#3,  0.169315
-#4, 0.163883
-#5, 0.16075
-#6, 0.5350667
-#7, 0.00345
 #########################################################################################
