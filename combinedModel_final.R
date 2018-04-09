@@ -1,20 +1,19 @@
 #################################################################################
 
+###################
+#Retrive the data##
+###################
+
 source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eldsDeer/formattingcombinedModel.R')
 
 ##############################################
-#First sort out the code for the spline model#
+#Sort out the code for the spline model#
 ##############################################
 
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
-
 #Use the JAGAM function to get the BUGS code for the spline
-#http://www.petrkeil.com/?p=2385
-setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 library(mgcv)
-#myGridDF3km$ForestS<-as.numeric(scale(log(forestcover+1)))
-
-jags.ready <- jagam(Deer~ 1 + s(x, y), 
+jags.ready <- jagam(Deer~ 1 + s(x, y,k=10), 
                     data=myGridDF3km, 
                     family="poisson", 
                     sp.prior="log.uniform",
@@ -53,15 +52,15 @@ bugs.data<-list(#camera trap data
                 ty.combos = transectInfo,
                 TransYrIdx = TransYrIdx,
                 zeros.dist = rep(0,nrow(detectionInfo)),
-                transectAreas = transectAreas,
+                transectLengths = myGridDF3km[sites.lt,c("t2014","t2015","t2016")],
                 #total number of sites  
                 n.sites = length(unique(myGridDF3km$Grid3km)),
                 #covariates
                 Forest=as.numeric(scale(log(myGridDF3km$ForestCover+1))),
-                #Forest2=forestcover2,
-                Fields=as.numeric(scale(sqrt(myGridDF3km$Fields+1))),
+                ForestB=myGridDF3km$ForestCoverF,
+                Fields=as.numeric(scale(log(myGridDF3km$Fields+1))),
                 Military=myGridDF3km$MilitaryF,
-                Villages=as.numeric(scale(sqrt(myGridDF3km$Villages+1))),
+                Villages=as.numeric(scale(log(myGridDF3km$Villages+1))),
                 Water=waterMatrix,
                 Month=monthMatrix,
                 #spatial covariates
@@ -80,6 +79,7 @@ cat("
     
     #Model of factors affecting abundance
     beta.forest ~ dnorm(0,0.001)  
+    beta.forest2 ~ dnorm(0,0.001)     
     beta.military ~ dnorm(0,0.001)
     beta.fields ~ dnorm(0,0.001)
     beta.villages ~ dnorm(0,0.001)
@@ -93,46 +93,52 @@ cat("
       #(3)
       #abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
       #                    beta.fields * Fields[i] + beta.villages * Villages[i]
+
       #(4)
       #abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
       #                    beta.fields * Fields[i] + beta.villages * Villages[i] +
       #                    eta[i]
       #(5)
-      #abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
-      #                     beta.villages * Villages[i] + eta[i]
+      abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
+                           beta.villages * Villages[i]
+                          
       #(6)
-      abund.effect[i] <-  eta[i]
+      #abund.effect[i] <-  eta[i]
+      #(7)
+      #abund.effect[i] <-  beta.forest * ForestB[i] + beta.military * Military[i]
+      #(8)
+      #abund.effect[i] <-  beta.forest * Forest[i] + beta.military * Military[i] + 
+      #                    beta.villages * Villages[i] +
+      #                    beta.forest2 * Forest[i] * Forest [i]
+        }
+  
+      #Model for the spline
+      #the linear predictor
+      eta <- X %*% b ## linear predictor for the spline
+  
+      ## prior for s(x,y)... 
+      K1 <- S1[1:9,1:9] * lambda[1]  + S1[1:9,10:18] * lambda[2]
+      b[1:9] ~ dmnorm(zero[1:9],K1) 
+      
+      ## smoothing parameter priors.
+      for (i in 1:2) {
+        rho[i] ~ dunif(-3,3)
+        lambda[i] <- exp(rho[i])
       }
-
-    #Model for the spline
-    #the linear predictor
-    eta <- X %*% b ## linear predictor for the spline
-
-    ## prior for s(x,y)... 
-    K1 <- S1[1:29,1:29] * lambda[1]  + S1[1:29,30:58] * lambda[2]
-    b[1:29] ~ dmnorm(zero[1:29],K1) 
-    
-    ## smoothing parameter priors.
-    for (i in 1:2) {
-      rho[i] ~ dunif(-1,1)
-      lambda[i] <- exp(rho[i])
-    }
-
-    #Different observation models depending on the data:
-
-    #(1) Camera trap data
-    
-    #Priors
-    theta.water ~ dnorm(0,0.001)
-    alpha.month ~ dnorm(0,0.001)
-    abund.slope ~ dnorm(0,0.001)
-    abund.slope2 ~ dnorm(0,0.001)
-
-    #intercepts for each model
-    mean.p.ct ~ dunif(0,1)
-    intercept.ct ~ dunif(0,1)
-    int.theta ~ dunif(0,1) 
-
+  
+      #Different observation models depending on the data:
+  
+      #(1) Camera trap data
+      
+      #Priors
+      theta.water ~ dnorm(0,0.001)
+      alpha.month ~ dnorm(0,0.001)
+      abund.slope ~ dnorm(0,0.001)
+  
+      #intercepts for each model
+      mean.p.ct ~ dunif(0,1)
+      intercept.ct ~ dunif(0,1)
+      int.theta ~ dunif(0,1) 
 
     #Model (multi-scale occupancy model using cloglog so we are esssentially modelling abundance!)
     for (i in 1:n.CameraTrapSites) { 
@@ -190,22 +196,23 @@ cat("
     for (j in 1:n.Transect){
       for (t in 1:n.Yrs){
         n[j,t] ~ dpois(nHat[j,t]) 
-        nHat[j,t] <- expN[j,t]*transectAreas[j]*averagePa
-        log(expN[j,t]) <- intercept.lt + abund.effect[site.lt[j]]
-    }
+        #work out area of each cell that is surveyed
+        surveyArea[j,t]<-(transectLengths[j,t]*(ESW.constant/1000)*2)/9
+        nHat[j,t] <- (expN[j,t])*surveyArea[j,t]
+        log(expN[j,t]) <- (intercept.lt + abund.effect[site.lt[j]])
+      }
     }
 
     #predict density (number of indivdiuals per grid cell) for all sites 
     #using the abundance effect and average group size
     #and the intercept of the line transect model for number of groups
     for(i in 1:n.sites){
-      log(Density[i]) <- (intercept.lt + abund.effect[i])*(intercept.groupsize) 
+      Density[i] <- exp(intercept.lt + abund.effect[i])*exp(intercept.groupsize) 
     }
 
     #get predicted total across whole area
     avDensity <- mean(Density)
     totDensity <- sum(Density)
-
 
 
     #calculate the Bayesian p-value
@@ -233,8 +240,8 @@ cat("
     pi <- 3.141593
     
     #Priors
-    sigma ~ dunif(50,140)
-    b.d.0 ~ dunif(0,20)
+    sigma ~ dunif(10,200)
+    b.d.0 ~ dunif(0,10)
 
     ##### Begin model for *all detections*
     
@@ -288,8 +295,9 @@ source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
 #https://www.r-bloggers.com/spatial-autocorrelation-of-errors-in-jags/
 
 params <- c("intercept.lt","intercept.ct","lambda","intercept.groupsize",
-            "rho","averagePa","beta.forest","beta.military","abund.slope","abund.slope2",
+            "rho","averagePa","beta.forest","beta.military","abund.slope",
             "beta.villages","beta.fields",
+            "beta.forest2",    
             "alpha.month","theta.water","obs.sd",
             "gs.forest","gs.military",
             "avDensity","totDensity","Density","nHat","fit","fit.new")
@@ -302,13 +310,14 @@ inits <- function(){list(sigma=runif(1,80,150),
                          z.ct = zst.ct, 
                          a = ast)}
 
-ni<-50000
-nb<-10000
+ni<-200000
+nb<-50000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped_spline.txt", n.thin=nt,
-             n.chains=nc, n.burnin=nb,n.iter=ni)
+             n.chains=nc, n.burnin=nb,n.iter=ni,parallel=TRUE)
 
 print(out1,2)
 traceplot(out1)
+save(out1,file="out1_final(5)")
 
 library(ggmcmc)   
 out2<-ggs(out1$samples)
@@ -317,27 +326,31 @@ ggs_traceplot(filter(out2,Parameter%in%c("intercept.lt","intercept.ct","totDensi
 ########################################################################################
 
 #Plotting predictions
-
+library(gplot)
 setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment")
 myGridDF3km$fits<-out1$mean$Density
 predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
 predRaster<-mask(predRaster,sws)
-png(file="combinedModel_grouped_spline(6).png")
-plot(predRaster)
+range(getValues(predRaster),na.rm=T)
+png(file="combinedModel_grouped_spline(5).png")
+plot(predRaster,col=rev(topo.colors(50)),zlim=c(0,160))
 plot(sws,add=T)
 dev.off()
 
 #pulling out all coeffients of interest
 coefTable<-data.frame(out1$summary)
 coefTable$Parameter<-row.names(out1$summary)
-save(coefTable,file="coefTable_combinedModel_grouped_spline(6).RData")
+save(coefTable,file="coefTable_combinedModel_grouped_spline(5).RData")
 
 #save similations
 simslistDF<-list(fit=out1$sims.list$fit,fit.new=out1$sims.list$fit.new)
 mean(simslistDF$fit.new>simslistDF$fit)
 
-#3, 0.00205
+#1, 0.098
+#2,  0.10085
+#3,  0.169315
 #4, 0.163883
-#6, 0.3200167
-
+#5, 0.16075
+#6, 0.5350667
+#7, 0.00345
 #########################################################################################
