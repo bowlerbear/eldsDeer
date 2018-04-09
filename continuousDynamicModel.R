@@ -268,7 +268,7 @@ model{
     n[j,t] ~ dpois(nHat[j,t])
 
     EffectiveArea [j,t] <- (L[j,t]/1000) * (ESW.JT[j,t]/1000) * 2
-    nHat[j,t] <- Density[j,t] * 1
+    nHat[j,t] <- Density[j,t] * EffectiveArea[j,t]
 
     #density of groups           
     log(Density[j,t]) <- B.n.0 + 
@@ -366,16 +366,30 @@ model{
   #plotting
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+theme_bw()
   
+  #plotting it nicely
+  ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+
+    theme_classic()+ylab("Mean population density")
+  
+  
   #(3) get the predictions of densities per region and time
   expectedDensities<-out1$summary
   expectedDensities<-data.frame(expectedDensities[grepl("D.region",row.names(expectedDensities)),])
   expectedDensities$Transect<-rep(1:2)
-  expectedDensities$Year<-rep(1:20,each=2)
+  expectedDensities$Year<-rep(1998:2017,each=2)
   
   #plotting
   png("regionts.png")
   ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+facet_wrap(~Transect)
   dev.off()
+  
+  #plotting it nicely
+  expectedDensities$Transect<-as.factor(expectedDensities$Transect)
+  levels(expectedDensities$Transect)<-c("outside military area","within military area")
+  expectedDensities$Transect<-factor(expectedDensities$Transect,levels=c("within military area",
+                                                                         "outside military area"))
+  ggplot(expectedDensities)+geom_pointrange(aes(x=Year,y=mean,ymin=X2.5.,ymax=X97.5.))+
+    facet_wrap(~Transect,ncol=1)+
+    theme_classic()+ylab("Mean population density")
   
   #(4) get the predictions of densities (number of groups) per time and transect
   expectedDensities<-out1$summary
@@ -443,3 +457,7 @@ model{
   
   ################################################################################################
   
+  #plot the transects 1- 6 blue, 7-16 is yellow
+  source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eldsDeer/formattingcombinedModel.R')
+  
+  ###############################################################################################

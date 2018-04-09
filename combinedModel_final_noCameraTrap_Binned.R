@@ -3,6 +3,7 @@
 source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eldsDeer/formattingcombinedModel.R')
 
 ######################################################################################
+
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 
 #Use the JAGAM function to get the BUGS code for the spline
@@ -24,13 +25,27 @@ zero = jags.ready$jags.data$zero
 myGridDF3km$Deer.lt[sites.lt]
 myGridDF3km$DeerCounts.lt<-NA
 myGridDF3km$DeerCounts.lt[sites.lt]<-round(apply(groupInfo,1,mean))
-
-model1 <- gam(DeerCounts.lt~1+s(x, y,k=30), 
+model1 <- gam(DeerCounts.lt~1+s(x, y,k=10), 
                     data=subset(myGridDF3km,!is.na(Deer.lt)), 
                     family="poisson")
 summary(model1)
-
 #smoothing terms are significant...
+
+######################################################################################
+
+#bin distance data
+summary(detectionInfo$Distance)
+hist(detectionInfo$Distance)
+Breaks=c(0,50,100,150,200,250)
+Midpt= (Breaks[2:6]+Breaks[1:5])/2
+detectionInfo$Distance<-cut(detectionInfo$Distance,breaks=Breaks)
+levels(detectionInfo$Distance) <-1:length(unique(detectionInfo$Distance))
+detectionInfo$Distance<-as.numeric(as.character(detectionInfo$Distance))
+detectionInfo$Distance[is.na(detectionInfo$Distance)]<-1
+unique(detectionInfo$Distance)
+hist(detectionInfo$Distance)
+
+######################################################################################
 
 #######################
 #Compile data for model#
@@ -47,7 +62,11 @@ bugs.data<-list(
                 #n.detectionSites = length(unique(detectionInfo$Site)),
                 #d.Forest = detectionInfo$forestcover,
                 #d.Military = detectionInfo$military,
-                y = detectionInfo$Distance,
+                dclass = detectionInfo$Distance,
+                B=max(Breaks),
+                nD =length(Breaks)-1,
+                midpt=Midpt,
+                delta=Breaks[2]-Breaks[1],
                 d.Groupsize = detectionInfo$GroupSize,
                 #d.Site = detectionInfo$Site,
                 n.TransectYrs = nrow(transectInfo),
@@ -59,15 +78,14 @@ bugs.data<-list(
                 Forest=as.numeric(scale(log(myGridDF3km$ForestCover+1)))[sites.lt],
                 ForestB=myGridDF3km$ForestCoverF[sites.lt],
                 #Forest2=forestcover2,
-                Fields=as.numeric(scale(log(myGridDF3km$Fields+1)))[sites.lt],
+                Fields=as.numeric(scale(sqrt(myGridDF3km$Fields+1)))[sites.lt],
                 Military=myGridDF3km$MilitaryF[sites.lt],
-                Villages=as.numeric(scale(log(myGridDF3km$Villages+1)))[sites.lt],
+                Villages=as.numeric(scale(sqrt(myGridDF3km$Villages+1)))[sites.lt],
                 #total number of sites  
                 n.sites = length(unique(myGridDF3km$Grid3km)),
                 ForestB_All=myGridDF3km$ForestCoverF,
                 Forest_All=as.numeric(scale(log(myGridDF3km$ForestCover+1))),
-                Villages_All=as.numeric(scale(log(myGridDF3km$Villages+1))),
-                Fields_All=as.numeric(scale(log(myGridDF3km$Fields+1))),
+                Villages_All=as.numeric(scale(sqrt(myGridDF3km$Villages+1))),
                 Military_All=myGridDF3km$MilitaryF,
                 #spatial covariates
                 X = X,
@@ -101,10 +119,8 @@ cat("
     log(exp.GroupSize[i]) <- intercept.groupsize
     }
 
-    gp<-exp(intercept.groupsize)
 
     #Model of factors affecting abundance
-    beta.forest2 ~ dnorm(0,0.001) 
     beta.forest ~ dnorm(0,0.001)  
     beta.military ~ dnorm(0,0.001)
     beta.fields ~ dnorm(0,0.001)
@@ -147,14 +163,6 @@ cat("
       random.s.site[j] ~ dunif(0,site.s.tau)
     }
 
-    #obs.lt.sd ~ dunif(0,10)
-    #obs.lt.tau <- pow(obs.lt.sd,-2)
-    #for (j in 1:n.Transect){
-    #  for (t in 1:n.Yrs){
-    #    random.lt.obs[j,t] ~ dnorm(0,obs.lt.tau)
-    #  }
-    #}
-
     #fit model
     for (j in 1:n.Transect){
       for (t in 1:n.Yrs){
@@ -178,19 +186,20 @@ cat("
         #                      beta.villages * Villages[j]+eta[j]
         
         #(5)#with only significant covariates
-        log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
-                              beta.villages * Villages[j] 
+        #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
+        #                      beta.villages * Villages[j]
         
         #(6)with binary forest cover
         #log(Density[j,t]) <- intercept.lt + beta.forest * ForestB[j] + beta.military * Military[j]
 
         #(7)with forest cover and military
-        #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j]
+        log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j]
 
       }
     }
 
     #derived parameters
+    gp<-exp(intercept.groupsize)
     for(j in 1:n.Transect){
       #get predicted total across whole area
       n.transect[j] <-mean(Density[j,]*gp)#mean across years 
@@ -199,7 +208,7 @@ cat("
 
 
     #calculate the Bayesian p-value
-    e <- 0.00000001
+    e <- 0.0001
     for(j in 1:n.Transect){
       for(t in 1:n.Yrs){
     # Fit assessments: Chi-squared test statistic and posterior predictive check
@@ -218,74 +227,51 @@ cat("
     fit <- sum(fit.t[])                     # Omnibus test statistic actual data
     fit.new <- sum(fit.new.t[])             # Omnibus test statistic replicate data
 
-    # DETECTABILITY COMPONENT#####
-
-    pi <- 3.141593
     
+# DETECTABILITY COMPONENT#####
+
     #Priors
-    sigma ~ dunif(50,140)
-    b.d.0 ~ dunif(0,20)
-    b.group.size ~ dnorm(0,0.001)
+    sigma ~ dunif(50,200)
 
     ##### Begin model for *all detections*
-    
+  
     for( i in 1:n.Detections){
-    
-    #MODELS FOR HALF-NORMAL DETECTION PARAMETER SIGMA
-    mu.df[i] <- b.d.0
-    #mu.df[i] <- b.d.0 + b.group.size * d.Groupsize[i]
+      dclass[i] ~ dcat(fc)
+    }
 
-    # estimate of sd and var, given coeffs above
-    
-    sig.df[i] <- exp(mu.df[i])
-    sig2.df[i] <- sig.df[i]*sig.df[i]
-    
-    # effective strip width
-    esw[i] <- sqrt(pi * sig2.df[i] / 2)
-    f0[i] <- 1/esw[i] #assuming all detected on the line
-    
-    # LIKELIHOOD
-    # estimate sigma using zeros trick
-    L.f0[i] <- exp(-y[i]*y[i] / (2*sig2.df[i])) * 1/esw[i] #y are the distances
-    nlogL.f0[i] <-  -log(L.f0[i])
-    zeros.dist[i] ~ dpois(nlogL.f0[i])
+
+    # Compute detection probability
+    for(k in 1:nD){#for each distance class
+      log(p[k]) <- -midpt[k]*midpt[k]/(2*sigma*sigma)
+      pi[k] <- delta/B
+      f[k] <- p[k]*pi[k]
+      fc[k] <- f[k]/pcap
     }
+
+    pcap <- sum(f)  # Overall detection probability
     
-    #get average esw per transect and year
-    for(k in 1:n.TransectYrs){
-    for(i in 1:n.Detections){
-    grp.ESW[i,k] <- esw[i] * TransYrIdx[i,k]
-    }
-    ESW.jt[ty.combos[k,1], ty.combos[k,2]] <- sum(grp.ESW[,k])/max(1,sum(TransYrIdx[,k]))  
-    }
+  
+    averagePa <-pcap
+    ESW.constant <- averagePa*W
     
-    #convert into an average detection probability 
-    #because no factors were found to affect detection probability, the value is constant
-    for (j in 1:n.Transect){
-    ESW.j[j] <- max(0.0001,ESW.jt[j,])
-    }
-    
-    ESW.constant <- max(ESW.j)
-    averagePa <- ESW.constant/W
 
     #predict over total area
-    for(j in 1:n.sites){
-      log(predDensity[j]) <- intercept.lt + beta.forest * Forest_All[j] + 
-                              beta.military * Military_All[j] +
-                              beta.villages * Villages_All[j] 
-      
-       totalIndiv[j] <- predDensity[j]*gp
-    }
-    totalPredDensity <- sum(totalIndiv)
-    }
+    #for(j in 1:n.sites){
+    #  log(predDensity[j]) <- intercept.lt + beta.forest * Forest_All[j] + 
+    #                          beta.military * Military_All[j] +
+    #                          beta.villages * Villages_All[j]
+    #  totalIndiv[j] <- predDensity[j]*gp
+    #}
 
+    #totalPredDensity <- sum(totalIndiv)
+    
+    }
     ",fill = TRUE)
 sink()
 
 source('C:/Users/diana.bowler/OneDrive - NINA/methods/models/bugsFunctions.R')
 
-params <- c("ESW.constant",
-            "rho","intercept.lt","intercept.groupsize",
+params <- c("ESW.constant","rho","intercept.lt","intercept.groupsize",
             "averagePa","beta.forest","beta.military",
             "beta.fields","beta.villages",
             "site.s.sd","year.s.sd",
@@ -296,12 +282,11 @@ params <- c("ESW.constant",
 inits <- function(){list(sigma=runif(1,80,150))}
 
 ni<-50000
-nb<-10000
+nb<-5000
 out1 <- jags(bugs.data, inits=inits, params, "combinedModel_grouped_spline.txt", n.thin=nt,
              n.chains=nc, n.burnin=nb,n.iter=ni)
 
 print(out1,2)
-save(out1,file="out1_final_noCameraTrap(5).RData")
 
 #Plots
 traceplot(out1)
@@ -321,7 +306,7 @@ myGridDF3km$fits[sites.lt]<-out1$mean$n.transect
 predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
 predRaster<-mask(predRaster,sws)
 png(file="combinedModel_grouped_spline_noCameraTrap(3).png")
-plot(predRaster,col=rev(topo.colors(50)),zlim=c(0,170))
+plot(predRaster)
 plot(sws,add=T)
 dev.off()
 
@@ -340,9 +325,9 @@ simslistDF<-list(fit=out1$sims.list$fit,fit.new=out1$sims.list$fit.new)
 mean(simslistDF$fit.new>simslistDF$fit)
 #1 - 0.04743
 #2 - 0.13625
-#3 - 0.4144617
+#3 - 0.46431
 #4 - 0.00218
-#5 - 0.05243111 
+#5 - 0.05221
 #6 - 0.002555556
 #7 - 0.03
 
@@ -353,7 +338,7 @@ myGridDF3km$fits<-out1$mean$totalIndiv
 predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
 predRaster<-mask(predRaster,sws)
 png(file="combinedModel_grouped_spline_noCameraTrap(5).png")
-plot(predRaster,col=rev(topo.colors(50)),zlim=c(0,160))
+plot(predRaster)
 plot(sws,add=T)
 dev.off()
 
