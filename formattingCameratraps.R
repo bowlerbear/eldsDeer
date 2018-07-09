@@ -23,6 +23,14 @@ sws<-readOGR(dsn=getwd(),layer="WDPA_Aug2017_protected_area_1236-shapefile-polyg
 setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/MMR layers/Updated")
 transects<-readOGR(getwd(),layer="Transects")
 
+#give them the transect names
+plot(transects)
+transects$Id<-as.character(transects$Id)
+transects$Id[1:16]<-1:16
+transects$Id[17:24]<-24:17
+plot(sws)
+plot(subset(transects,Id==1))
+
 ######################################################################################################
 
 setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Camera traps")
