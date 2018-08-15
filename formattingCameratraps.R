@@ -28,8 +28,6 @@ plot(transects)
 transects$Id<-as.character(transects$Id)
 transects$Id[1:16]<-1:16
 transects$Id[17:24]<-24:17
-plot(sws)
-plot(subset(transects,Id==1))
 
 ######################################################################################################
 
@@ -58,7 +56,6 @@ stations2016Locations$Year<-2016
 #all stations
 locations<-rbind(stations2014Locations,stations2016Locations)
 locations<-subset(locations,!is.na(LATITUDE..N.)&!is.na(LONGITUDE..E.))
-
 
 ###########################################################
 #get forest cover and elevational data at all lat and lons#
@@ -163,6 +160,10 @@ unique(deer$ID[!deer$ID%in%locations$ID])
 ##############################################
 
 surveys<-locations[,c("ID","SETUP.DATE","TAKE.DOWN.DATE","Year")]
+#surveys$SurveyDays<-surveys$TAKE.DOWN.DATE-surveys$SETUP.DATE
+#tapply(surveys$SurveyDays,surveys$Year,median,na.rm=T)
+#2014 2016 
+#10   38
 
 #assume missing surveys in 2016 were for 38 days
 surveys$TAKE.DOWN.DATE[is.na(surveys$TAKE.DOWN.DATE)&surveys$Year==2016]<-surveys$SETUP.DATE[is.na(surveys$TAKE.DOWN.DATE)&surveys$Year==2016]+38
@@ -198,69 +199,8 @@ table(surveys$numberDeer)
 
 #get list of ID with potential operational issues
 probIDs<-locations$ID[locations$CAMERA.OPERATIONAL.TAKE.DOWN%in%c("FALSE","NO","No (Lost")]
-
-#add NA after last presence for these cameras
-surveys<-ddply(surveys,.(ID),function(x){
-  if(unique(x$ID)%in%probIDs){
-    maxDay<-ifelse(1%in%x$PA,max(x$Day[x$PA==1]),max(x$Day))
-    x$PA[x$Day>maxDay]<-NA
-    x$numberDeer[x$Day>maxDay]<-NA
-    return(x)
-  }else{
-    return(x)
-  }
-})
-
-#check wheter they took a time lapse photo
-#check with John  - discard
-
-#####################################################################################################
-
-#get human data??
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Camera traps")
-human2014<-read.delim("Data 2014 & 2016 Clean 011216_2014.txt",as.is=T)
-human2014<-subset(human2014,!X.3%in%c("","Humans in total"))
-human2016<-read.delim("Data 2014 & 2016 Clean 011216_2016.txt",as.is=T)
-human2016<-subset(human2016,!X.3%in%c("","Humans in total"))
-human2016_2<-read.delim("Data 2014 & 2016 Clean 011216_2016_2.txt",as.is=T)
-human2016_2<-subset(human2016_2,!X.3%in%c("","Humans in total"))
-
-#or combining each file for human data
-human2014<-human2014[,c("Year","Location","Camera","SD.Card","X.3","Start...Event","End...Event")]
-human2016<-human2016[,c("Year","Location","Camera","SD.Card","X.3","Start...Event","End...Event")]
-human2016_2<-human2016_2[,c("Year","Location","Camera","SD.Card","X.3","Start...Event","End...Event")]
-human<-rbind(human2014,human2016,human2016_2)
-human$X.3<-as.numeric(human$X.3)
-names(human)[5]<-"numberHumans"
-names(human)[6:7]<-c("StartDate","EndDate")
-human$StartDate<-as.Date(human$StartDate,format="%d.%m.%Y")
-
-#same formatting as in the deer file
-human$Location<-gsub("_","",human$Location)
-human$Camera<-gsub("_","",human$Camera)
-human$Location<-gsub("-","",human$Location)
-human$Location<-gsub("A","",human$Location)
-human$Camera<-gsub("-","",human$Camera)
-#put the december 2015 points into 2016 season
-human$Year[which(human$Year==2015)]<-2016
-
-#are all grid cells id in one in the other?
-#no
-#remove and As and Bs
-human$Location<-gsub("A","",human$Location)
-human$Location<-gsub("b","",human$Location)
-human$ID<-paste(human$Year,human$Location,human$Camera,human$SD.Card,sep="_")
-unique(human$ID[!human$ID%in%locations$ID])
-#14 sets of records...assume grid cell is right??
-
-#use ID for the moment
-
-#get average human counts per ID
-humansDF<-ddply(human,.(ID),summarise,meanHumans=mean(numberHumans,na.rm=T),medHumans=median(numberHumans,na.rm=T))
-#locations$humans<-humansDF$meanHumans[match(locations$ID,humansDF$ID)]
-#locations$humans[is.na(locations$humans)]<-0
-#ggplot(data=locations,aes(x=LONGITUDE..E.,y=LATITUDE..N.))+
-#  geom_point(aes(size=humans))+
-#  geom_point(data=subset(locations,humans==0),colour="red")
-#######################################################################################################
+surveys2<-subset(surveys,ID%in%probIDs)
+sum(surveys2$PA)#nothing was seen at these stations, so remove them
+surveys<-subset(surveys,!ID%in%probIDs)
+#####################################################################################
 

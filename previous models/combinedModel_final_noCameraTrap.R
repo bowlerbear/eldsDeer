@@ -3,76 +3,75 @@
 source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eldsDeer/formattingcombinedModel.R')
 
 ######################################################################################
-setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
 
-#Use the JAGAM function to get the BUGS code for the spline
-#http://www.petrkeil.com/?p=2385
+##############################################
+#Sort out the code for the spline model#
+##############################################
+
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
+#Use the JAGAM function to get the BUGS code for the spline
+
 library(mgcv)
-jags.ready <- jagam(Deer.lt~1+s(x, y,k=10), 
-                    data=subset(myGridDF3km,!is.na(Deer.lt)), 
-                    family="poisson", 
+summary(m.gam<-gam(Deer~ 1 + s(x, y),data=myGridDF3km, family=binomial(link="cloglog")))
+gam.check(m.gam)
+
+jags.ready <- jagam(Deer~ 1 + s(x, y,bs="tp",k=10), 
+                    data=myGridDF3km, 
+                    family=binomial, 
                     sp.prior="log.uniform",
-                    file="jagam.lt.txt")
+                    file="jagam.txt")
+
 
 #get the data bits we need from jags data
 X = jags.ready$jags.data$X
 S1 = jags.ready$jags.data$S1
 zero = jags.ready$jags.data$zero
 
-#fit model
-myGridDF3km$Deer.lt[sites.lt]
-myGridDF3km$DeerCounts.lt<-NA
-myGridDF3km$DeerCounts.lt[sites.lt]<-round(apply(groupInfo,1,mean))
-
-model1 <- gam(DeerCounts.lt~1+s(x, y,k=30), 
-                    data=subset(myGridDF3km,!is.na(Deer.lt)), 
-                    family="poisson")
-summary(model1)
-
-#smoothing terms are significant...
 
 #######################
 #Compile data for model#
 ########################
 
-bugs.data<-list(
-                #line transect data
-                site.lt = sites.lt,
-                n.Transect = length(unique(datafile$Transect)), 
-                n.Yrs = length(unique(datafile$T)),
-                W = 250,
-                n = groupInfo,
-                n.Detections = nrow(detectionInfo),
-                #n.detectionSites = length(unique(detectionInfo$Site)),
-                #d.Forest = detectionInfo$forestcover,
-                #d.Military = detectionInfo$military,
-                y = detectionInfo$Distance,
-                d.Groupsize = detectionInfo$GroupSize,
-                #d.Site = detectionInfo$Site,
-                n.TransectYrs = nrow(transectInfo),
-                ty.combos = transectInfo,
-                TransYrIdx = TransYrIdx,
-                zeros.dist = rep(0,nrow(detectionInfo)),
-                transectLengths = myGridDF3km[sites.lt,c("t2014","t2015","t2016")],
-                #covariates
-                Forest=as.numeric(scale(log(myGridDF3km$ForestCover+1)))[sites.lt],
-                ForestB=myGridDF3km$ForestCoverF[sites.lt],
-                #Forest2=forestcover2,
-                Fields=as.numeric(scale(log(myGridDF3km$Fields+1)))[sites.lt],
-                Military=myGridDF3km$MilitaryF[sites.lt],
-                Villages=as.numeric(scale(log(myGridDF3km$Villages+1)))[sites.lt],
-                #total number of sites  
-                n.sites = length(unique(myGridDF3km$Grid3km)),
-                ForestB_All=myGridDF3km$ForestCoverF,
-                Forest_All=as.numeric(scale(log(myGridDF3km$ForestCover+1))),
-                Villages_All=as.numeric(scale(log(myGridDF3km$Villages+1))),
-                Fields_All=as.numeric(scale(log(myGridDF3km$Fields+1))),
-                Military_All=myGridDF3km$MilitaryF,
-                #spatial covariates
-                X = X,
-                S1 = S1,
-                zero = zero)
+bugs.data<-list(#line transect data
+  site.lt = sites.lt,
+  n.Transect = length(unique(datafile$Transect)), 
+  n.Yrs = length(unique(datafile$T)),
+  W = 250,
+  n = groupInfo,
+  n.Detections = nrow(detectionInfo),
+  #n.detectionSites = length(unique(detectionInfo$Site)),
+  #d.Forest = as.numeric(scale(log(detectionInfo$forestcover+1))),
+  #d.Military = ifelse(detectionInfo$military>0,1,0),
+  d.transectId = as.numeric(factor(
+    interaction(detectionInfo$transectID,detectionInfo$T))),
+  n.d.transectId = length(unique(factor(
+    interaction(detectionInfo$transectID,detectionInfo$T)))),
+  y = detectionInfo$Distance,
+  d.Groupsize = detectionInfo$GroupSize,
+  #d.Site = detectionInfo$Site,
+  n.TransectYrs = nrow(transectInfo),
+  ty.combos = transectInfo,
+  TransYrIdx = TransYrIdx,
+  zeros.dist = rep(0,nrow(detectionInfo)),
+  transectLengths = mytransectLengths,
+  n.transectId = length(unique(myGridDF3km$transectId[!is.na(myGridDF3km$Deer.lt)])),
+  transectId = myGridDF3km$transectId[!is.na(myGridDF3km$Deer.lt)],
+  #total number of sites  
+  n.sites = length(unique(myGridDF3km$Grid3km)),
+  #covariates
+  Forest=as.numeric(scale(log(myGridDF3km$ForestCover+1))),
+  Forest2=as.numeric(scale(myGridDF3km$ForestCover^2)),
+  ForestF=myGridDF3km$ForestCoverF,
+  ForestF2=myGridDF3km$ForestCoverF2,
+  Fields=as.numeric(scale(log(myGridDF3km$Fields+1))),
+  Military=myGridDF3km$MilitaryF,
+  MilitaryN=as.numeric(scale(myGridDF3km$Military)),
+  Villages=as.numeric(scale(log(myGridDF3km$Villages+1))),
+  #spatial covariates
+  X = X,
+  S1 = S1,
+  zero = zero)
+
 
 
 setwd('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment')
@@ -83,27 +82,24 @@ cat("
     # MODEL GROUP SIZE
 
     intercept.groupsize ~ dnorm(0,0.001)
-    obs.sd ~ dunif(0,10)
-    obs.tau <- pow(obs.sd,-2)
-    for(i in 1:n.Detections){
-    random.obs[i] ~ dnorm(0,obs.tau)
-    }
     
     #effect of covariates
     #gs.forest ~ dnorm(0,0.001)#no effect
     #gs.military ~ dnorm(0,0.001)#no effect
     
+    
     for(i in 1:n.Detections){
     d.Groupsize[i] ~ dpois(exp.GroupSize[i])
     #log(exp.GroupSize[i]) <- intercept.groupsize + gs.forest * d.Forest[i] + 
-    #                          gs.military * d.Military[i] + random.obs[i] 
+    #                          gs.military * d.Military[i] 
     
-    log(exp.GroupSize[i]) <- intercept.groupsize
+    log(exp.GroupSize[i]) <- intercept.groupsize 
     }
 
     gp<-exp(intercept.groupsize)
 
     #Model of factors affecting abundance
+
     beta.forest2 ~ dnorm(0,0.001) 
     beta.forest ~ dnorm(0,0.001)  
     beta.military ~ dnorm(0,0.001)
@@ -118,75 +114,43 @@ cat("
     intercept.lt ~ dnorm(0,0.001)
 
     #if including a spline?
-    eta <- X %*% b 
 
-    ## Parametric effect priors CHECK tau=1/10^2 is appropriate!
-    for (i in 1:1) { b[i] ~ dnorm(0,0.01) }
+    #Model for the spline
+      #the linear predictor
+    eta <- X %*% b ## linear predictor for the spline
+    
+    ## Parametric effect priors
+    for (i in 1:1) { b[i] ~ dnorm(0,0.27) }
     
     ## prior for s(x,y)... 
     K1 <- S1[1:9,1:9] * lambda[1]  + S1[1:9,10:18] * lambda[2]
     b[2:10] ~ dmnorm(zero[2:10],K1) 
     
-    ## smoothing parameter priors
+    ## smoothing parameter priors 
     for (i in 1:2) {
-      rho[i] ~ dunif(-3,3)
-      lambda[i] <- exp(rho[i])
+    rho[i] ~ dunif(-3,3)
+    lambda[i] <- exp(rho[i])
     }
 
-    #random year effect
-    year.s.sd ~ dunif(0,10)
-    year.s.tau <- pow(year.s.sd,-2)
-    for(t in 1:n.Yrs){
-      random.s.year[t] ~ dunif(0,year.s.tau)
-    }
-
-    #random site effect
-    site.s.sd ~ dunif(0,10)
-    site.s.tau <- pow(site.s.sd,-2)
-    for(j in 1:n.Transect){
-      random.s.site[j] ~ dunif(0,site.s.tau)
-    }
-
-    #obs.lt.sd ~ dunif(0,10)
-    #obs.lt.tau <- pow(obs.lt.sd,-2)
-    #for (j in 1:n.Transect){
-    #  for (t in 1:n.Yrs){
-    #    random.lt.obs[j,t] ~ dnorm(0,obs.lt.tau)
-    #  }
-    #}
 
     #fit model
     for (j in 1:n.Transect){
       for (t in 1:n.Yrs){
+
         n[j,t] ~ dpois(nHat[j,t]) 
         nHat[j,t] <- (Density[j,t])*surveyArea[j,t]
         surveyArea[j,t]<-(transectLengths[j,t]*(ESW.constant/1000)*2)/9
         
         #(1)with all covariates
-        #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
+        #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * MilitaryN[j] +
         #                  beta.fields * Fields[j] + beta.villages * Villages[j] 
-
-        #(2)just random effects
-        #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + 
-        #                  random.s.year[t] + random.s.site[j]
 
         #(3)with spline
         #log(Density[j,t]) <- eta[j]
         
         #(4) with spline and covariates
-        #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
-        #                      beta.villages * Villages[j]+eta[j]
+        log(Density[j,t]) <- beta.forest * Forest[j] + beta.military * MilitaryN[j] +eta[j]
         
-        #(5)#with only significant covariates
-        log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j] +
-                              beta.villages * Villages[j] 
-        
-        #(6)with binary forest cover
-        #log(Density[j,t]) <- intercept.lt + beta.forest * ForestB[j] + beta.military * Military[j]
-
-        #(7)with forest cover and military
-        #log(Density[j,t]) <- intercept.lt + beta.forest * Forest[j] + beta.military * Military[j]
-
       }
     }
 
@@ -227,6 +191,13 @@ cat("
     b.d.0 ~ dunif(0,20)
     b.group.size ~ dnorm(0,0.001)
 
+   #random transect effect
+    for(i in 1:n.d.transectId){
+        random.transect[i] ~ dnorm(0,random.transect.tau)
+    }
+    random.transect.tau <- pow(random.transect.sd,-2)
+    random.transect.sd ~ dunif(0,10)
+
     ##### Begin model for *all detections*
     
     for( i in 1:n.Detections){
@@ -234,6 +205,7 @@ cat("
     #MODELS FOR HALF-NORMAL DETECTION PARAMETER SIGMA
     mu.df[i] <- b.d.0
     #mu.df[i] <- b.d.0 + b.group.size * d.Groupsize[i]
+    #mu.df[i] <- b.d.0 + random.transect[d.transectId[i]]
 
     # estimate of sd and var, given coeffs above
     
@@ -271,11 +243,11 @@ cat("
     #predict over total area
     for(j in 1:n.sites){
       log(predDensity[j]) <- intercept.lt + beta.forest * Forest_All[j] + 
-                              beta.military * Military_All[j] +
-                              beta.villages * Villages_All[j] 
+                              beta.military * Military_All[j]
       
-       totalIndiv[j] <- predDensity[j]*gp
+      totalIndiv[j] <- predDensity[j]*gp
     }
+
     totalPredDensity <- sum(totalIndiv)
     }
 
