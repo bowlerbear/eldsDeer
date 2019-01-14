@@ -1,7 +1,7 @@
 #################################################################################
 
 #run file to retreive and begin formatting the observations of deer in the camera trapping
-source('C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/eldsDeer/formattingCameratraps.R')
+source('/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/eldsDeer/formattingCameratraps.R')
 
 #################################################################################
 
@@ -16,7 +16,7 @@ library(RColorBrewer)
 #import 2 X 2 km grid giving the SWS grid ids and make it into a raster
 
 #the original grid of the study
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Camera traps")
+setwd("/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/Camera traps")
 grid<-read.delim("CameraGrid.txt")
 grid<-subset(grid,Col!=19)
 
@@ -76,13 +76,14 @@ plot(myGrid2)
 plot(sws,add=T)
 #looks good!
 grid3kmImpute <- getValues(myGrid2)[!is.na(getValues(myGrid2))]
-  
+length(grid3kmImpute) #65 
+
 #############################################################
 #Get species presence data from camera traps or line methods#
 #############################################################
 
 #get spatial points
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Reports")
+setwd("/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/Reports")
 
 #read in spatial point data with distances
 transectPoints<-read.delim("SpatialPoints_ProcessedOutput(2013-2017distances).txt")
@@ -122,7 +123,9 @@ proj4string(surveysRA)<-crs(crs(sws))
 library(rgeos)
 surveysRA<-gIntersection(surveysRA,sws)
 plot(sws)
-plot(surveysRA,add=T)
+plot(surveysRA,add=T,col="gray80")
+plot(surveysP,add=T,col="gray80")
+plot(transects,add=T)
 
 #identify the cells
 r[]<-1:ncell(r)
@@ -132,7 +135,7 @@ surveysRA<-extract(r,surveysRA)
 transectsRA<-do.call(c,extract(r,transects))
 transectsRA<-transectsRA[!transectsRA%in%transectPointsRP]
 
-par(mfrow=c(1,3))
+#par(mfrow=c(1,3))
 #camera trap alone
 r[]<-0
 r[surveysRA]<-1
@@ -164,12 +167,12 @@ plot(sws,add=T)
 
 #is a cell inside or outside the military area
 r[]<-1:ncell(r)
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/MMR layers")
+setwd("/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/MMR layers")
 military<-readOGR(getwd(),layer="Military area")
 militaryR<-ldply(extract(r,military,weights=T,normalizeWeights=F))
 
 #get average forest area for each cell
-fdir<-"C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/MMR layers/Updated/Hansen"
+fdir<-"/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/MMR layers/Updated/Hansen"
 forest2000<-raster(paste(fdir,"Hansen_GFC2015_treecover2000_30N_090E.tif",sep="/"))
 forest2000<-crop(forest2000,extent(r))
 forest2000M<-mask(forest2000,sws)
@@ -312,10 +315,6 @@ cameraTraps$Cell<-extract(myGrid,cameraTraps)
 cameraTraps<-merge(myGridDF,data.frame(cameraTraps),by.x="Grid1km",by.y="Cell")
 cameraTraps$Year<-sapply(as.character(cameraTraps$ID),function(x)strsplit(x,"_")[[1]][1])
 
-#get rid of data without water information
-#nowaterData<-locations$ID[locations$WATER.POINT==""]
-#cameraTraps<-subset(cameraTraps,!ID%in%nowaterData)
-
 #combine water point or salt lick as an attractor
 cameraTraps$LURE.TYPE<-as.character(cameraTraps$LURE.TYPE)
 cameraTraps$SALT.LICK<-as.character(cameraTraps$SALT.LICK)
@@ -348,7 +347,13 @@ dups<-subset(attractorDF,Grid1km%in%out$Grid1km[out$nu==2])
 cameraTraps<-subset(cameraTraps,!cameraTraps$ID%in%dups$ID[dups$Year=="2014"])
 
 #in each 1km grid - how many sites were there
-#ddply(cameraTraps,.(Grid1km),summarise,nu=length(unique(ID))) - usually just 1
+ddply(cameraTraps,.(Grid1km),summarise,nu=length(unique(ID)))# - usually just 1
+ddply(cameraTraps,.(Grid1km),summarise,nuL=length(unique(WATER.POINT)),
+                                        nuWP=length(unique(LURE.TYPE)))
+
+#head(subset(cameraTraps,Grid1km==309))
+#tail(subset(cameraTraps,Grid1km==309))
+cameraTraps<-subset(cameraTraps,ID!="2016_SWS155_NINA29_25")
 
 #plot presences
 presDF<-ddply(cameraTraps,.(x,y),summarise,P=max(PA,na.rm=T))
@@ -357,10 +362,17 @@ coordinates(presDF)<-c("x","y")
 plot(sws)
 plot(presDF,add=T)
 
+#how to make use of the observations
+ddply(cameraTraps,.(Year),summarise,nuObs=mean(PA))
+#more seen in 2016
+#very few in march, none in april - but they are more spread out..
+#cameraTraps <- subset(cameraTraps,!Month %in% c(3,4))
+
 #recount Day so it goes over multiple years/cameras in the same grid cells
+set.seed(4)
 cameraTraps<-ddply(cameraTraps,.(Grid1km),function(x){
   x<-x[order(x$Year,decreasing = T),]
-  Day=1:nrow(x)
+  Day=sample(1:nrow(x))
   data.frame(cbind(Day2=Day,x))
 })
 
@@ -399,6 +411,22 @@ cameraTraps$Month<-sapply(cameraTraps$Month,function(x)ifelse(x==12,0,x))
 monthMatrix<-acast(cameraTraps,Grid3km~GridRep~Day2,value.var="Month",fun=max)[,,1:nu]
 monthMatrix[is.infinite(monthMatrix)]<-0
 
+#year info
+cameraTraps$Year<-sapply(cameraTraps$Year.x,function(x)ifelse(x==2016,0,1))
+yearMatrix<-acast(cameraTraps,Grid3km~GridRep~Day2,value.var="Year",fun=max)[,,1:nu]
+yearMatrix[is.infinite(yearMatrix)]<-0
+
+#forest
+cameraTraps$ForestCover.x1 <- as.numeric(scale(sqrt(cameraTraps$ForestCover.x+0.01)))
+forestMatrix<-acast(cameraTraps,Grid3km~GridRep,value.var="ForestCover.x1",fun=mean)
+forestMatrix[is.na(forestMatrix)]<-0
+
+#field
+cameraTraps$Fields1 <- as.numeric(scale(sqrt(cameraTraps$Fields+0.01)))
+fieldMatrix<-acast(cameraTraps,Grid3km~GridRep,value.var="Fields1",fun=mean)
+fieldMatrix[is.na(fieldMatrix)]<-0
+
+
 #list of camera trap sites
 sites.ct<-acast(cameraTraps,Grid3km~GridRep~Day2,value.var="PA")
 sites.ct<-as.numeric(dimnames(sites.ct)[[1]])
@@ -423,11 +451,11 @@ nrow(transectDF)#76 detection events
 #get transect effort
 
 #read in transects for each year
-tdir<-"C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Reports/Copies of SWS Census reports/Copies of SWS Census reports/2016/georeferenced"
+tdir<-"/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/Reports/Copies of SWS Census reports/Copies of SWS Census reports/2016/georeferenced"
 transect2016<-readOGR(tdir,layer="TransectLines2016")
-tdir<-"C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Reports/Copies of SWS Census reports/Copies of SWS Census reports/2015/georeferenced"
+tdir<-"/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/Reports/Copies of SWS Census reports/Copies of SWS Census reports/2015/georeferenced"
 transect2015<-readOGR(tdir,layer="TransectLines2015")
-tdir<-"C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Reports/Copies of SWS Census reports/Copies of SWS Census reports/2014/georeferenced"
+tdir<-"/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/Reports/Copies of SWS Census reports/Copies of SWS Census reports/2014/georeferenced"
 transect2014<-readOGR(tdir,layer="TransectLines2014")
 
 #give them line numbers
@@ -550,6 +578,7 @@ gridTranslate<-data.frame(Grid=sort(unique(datafile$Grid3km)))
 gridTranslate$Transect<-1:nrow(gridTranslate)
 
 #scale vars
+#transect is grid
 datafile$Transect<-gridTranslate$Transect[match(datafile$Grid3km,gridTranslate$Grid)]
 datafile$T<-datafile$Year-min(datafile$Year)+1
 datafile$Obs<-ifelse(datafile$Count==0,0,1)
@@ -586,8 +615,11 @@ for(i in 2:nrow(detectionInfo)){
 }
 
 #detection covariates
-detectionInfo$military<-myGridDF3km$Military[match(detectionInfo$Grid3km,myGridDF3km$Grid3km)]
+detectionInfo$military<-myGridDF3km$MilitaryF[match(detectionInfo$Grid3km,myGridDF3km$Grid3km)]
+detectionInfo$militaryN<-myGridDF3km$Military[match(detectionInfo$Grid3km,myGridDF3km$Grid3km)]
 detectionInfo$forestcover<-myGridDF3km$ForestCover[match(detectionInfo$Grid3km,myGridDF3km$Grid3km)]
+detectionInfo$field<-myGridDF3km$Fields[match(detectionInfo$Grid3km,myGridDF3km$Grid3km)]
+detectionInfo$village<-myGridDF3km$Villages[match(detectionInfo$Grid3km,myGridDF3km$Grid3km)]
 
 #add transect grouping variable
 detectionInfo$transectID<-myGridDF3km$transectId[match(detectionInfo$Grid3km,myGridDF3km$Grid3km)]
@@ -595,17 +627,17 @@ detectionInfo$transectID<-as.numeric(as.factor(detectionInfo$transectID))
 
 #using RDistance
 par(mfrow=c(1,1))
-library(Rdistance)
-fit <- F.dfunc.estim(detectionInfo$Distance[!is.na(detectionInfo$Distance)], likelihood="halfnorm")#sigma is 125.627 
-plot(fit)
+#library(Rdistance)
+#fit <- F.dfunc.estim(detectionInfo$Distance[!is.na(detectionInfo$Distance)], likelihood="halfnorm")#sigma is 125.627 
+#plot(fit)
 
 #index all data points
 datafileObs<-subset(datafile,Obs==1)
 TransYrIdx<-matrix(nrow=nrow(datafileObs),ncol=nrow(transectInfo))
 TransYrIdx[]<-0
 for(i in 1:nrow(datafileObs)){
-  TransYrIdx[i,which(transectInfo$T==datafileObs$T[i]&
-                       datafile$Transect[i]==transectInfo$Transect)]<-1
+  TransYrIdx[i,which(datafileObs$T[i]==transectInfo$T&
+                       datafileObs$Transect[i]==transectInfo$Transect)]<-1
 }
 
 #################################################################################################
@@ -640,6 +672,7 @@ tempDF<-as.data.frame(myGrid3km,xy=T)
 myGridDF3km<-merge(myGridDF3km,tempDF,by.x="Grid3km",by.y="layer")
 
 ###########################################################################################
+
 par(mfrow=c(1,1))
 #plotting covariates
 check<-rasterFromXYZ(myGridDF3km[,c("x","y","Military")])
@@ -660,7 +693,7 @@ check<-rasterFromXYZ(myGridDF3km[,c("x","y","Villages")])
 plot(sws)
 plot(check,col=gray.colors(n=20,start=0.9,end=0.3),add=T,
     axis.args=list(cex.axis=0.8),
-    legend.args=list(text='Village pressure', side=4, line=2.75, cex=1.5))
+    legend.args=list(text='Village cover', side=4, line=2.75, cex=1.5))
 plot(sws,add=T)
 
 check<-rasterFromXYZ(myGridDF3km[,c("x","y","Fields")])

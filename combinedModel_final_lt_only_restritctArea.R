@@ -7,12 +7,10 @@
 source('/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/eldsDeer/formattingcombinedModel.R')
 old <- myGridDF3km
 ####################################################################################################################
-detectionInfo$Grid <- myGridDF3km$Grid[match(detectionInfo$Grid3km,myGridDF3km$Grid3km)]
 
 ##############################################
 #Sort out the code for the spline model#
 ##############################################
-
 myGridDF3km <- old
 
 setwd('/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment')
@@ -25,8 +23,7 @@ myGridDF3km$x <- myGridDF3km$x - medGridDF3km.x
 myGridDF3km$y <- myGridDF3km$y - medGridDF3km.y
 
 library(mgcv)
-df <- myGridDF3km
-df$Deer.lt[is.na(df$Deer.lt)] <- df$Deer.ct[is.na(df$Deer.lt)]
+df <- subset(myGridDF3km,!is.na(Deer.lt))
 m.gam<-gam(Deer.lt ~ s(x, y,k=4),data=df, family=poisson)
 gam.check(m.gam)
 summary(m.gam)
@@ -36,7 +33,7 @@ m.gam<-gam(resids ~ s(x, y),data=df)
 summary(m.gam)
 
 jags.ready <- jagam(Deer.lt~ 1 + s(x, y,k=4), 
-                    data=df, 
+                    data=subset(myGridDF3km,!is.na(Deer.lt)), 
                     family=poisson, 
                     sp.prior="log.uniform",
                     file="jagam.txt")
@@ -46,26 +43,6 @@ jags.ready <- jagam(Deer.lt~ 1 + s(x, y,k=4),
 X = jags.ready$jags.data$X
 S1 = jags.ready$jags.data$S1
 zero = jags.ready$jags.data$zero
-
-##################################################################################
-
-#add NAs to the groupInfo data
-
-new.my.n <-matrix(data=NA,nrow=nrow(myGridDF3km),ncol=3)
-new.my.n[sites.lt,]<-groupInfo
-new.transectlengths <-matrix(data=NA,nrow=nrow(myGridDF3km),ncol=3)
-new.transectlengths[sites.lt,]<-mytransectLengths
-new.transectlengths[is.na(new.transectlengths)]<-0
-#new.transectlengths[new.transectlengths==0] <- 0.00000001
-
-#index all data points
-transectInfo<-data.frame(expand.grid(Transect=1:nrow(myGridDF3km),T=1:3))
-TransYrIdx<-matrix(nrow=nrow(datafileObs),ncol=nrow(transectInfo))
-TransYrIdx[]<-0
-for(i in 1:nrow(datafileObs)){
-  TransYrIdx[i,which(datafileObs$T[i]==transectInfo$T&
-                       datafileObs$Transect[i]==transectInfo$Transect)]<-1
-}
 
 #####################################
 #Compile the remaining data for model#
@@ -82,11 +59,10 @@ bugs.data<-list(#camera trap data
   n.Transect = length(unique(datafile$Transect)), 
   n.Yrs = length(unique(datafile$T)),
   W = 250,
-  n = new.my.n,
+  n = groupInfo,
   n.Detections = nrow(detectionInfo),
   n.detectionSites = length(unique(detectionInfo$Site)),
   detectionSites = detectionInfo$Transect,
-  detectionGrids = detectionInfo$Grid,
   d.Forest = as.numeric(scale(sqrt(detectionInfo$forestcover+0.01))),
   d.Military = as.numeric(scale(sqrt(detectionInfo$militaryN+0.01))),
   d.Villages = as.numeric(scale(sqrt(detectionInfo$village+0.01))),
@@ -104,7 +80,7 @@ bugs.data<-list(#camera trap data
   ty.combos = transectInfo,
   TransYrIdx = TransYrIdx,
   zeros.dist = rep(0,nrow(detectionInfo)),
-  transectLengths = new.transectlengths,
+  transectLengths = mytransectLengths,
   n.transectId = length(unique(myGridDF3km$transectId[!is.na(myGridDF3km$Deer.lt)])),
   transectId = myGridDF3km$transectId[!is.na(myGridDF3km$Deer.lt)],
   #total number of sites  
@@ -138,37 +114,27 @@ setwd('/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment')
 sink("combinedModel_grouped_spline.txt")
 cat("
     model {
-    #Model of factors affecting abundance
-    beta.forest ~ dnorm(0,0.01)  
-    beta.military ~ dnorm(0,0.01)
-    beta.fields ~ dnorm(0,0.01)
-    beta.villages ~ dnorm(0,0.01)
-    
+  
+    #Model for the spline
+    for (i in 1:n.Transect) {
+      #spline effect
+      abund.effect[i] <- eta[i]
+      #random effect
+      #abund.effect[i] <- randomS[i] + eta[i]
+    }
+
     #random site
-    for(i in 1:n.sites){
+    for(i in 1:n.Transect){
       randomS[i] ~ dnorm(0,grid.tau)
     }
     grid.tau <- pow(grid.sd,-2)
-    grid.sd ~ dunif(0,10)
+    grid.sd ~ dunif(0,100)
 
-    #Common model
-    for (i in 1:n.sites) { #across all sites   
-    
-    #model with the spline
-      #abund.effect[i] <- eta[i] 
-
-      #model with covariates and the spline
-      #beta.fields * Fields[i]
-      abund.effect[i] <- beta.forest * Forest[i] + beta.military * MilitaryN[i] +
-                        eta[i]    
-    }
-    
-    #Model for the spline
     #the linear predictor
     eta <- X %*% b ## linear predictor for the spline
     
     ## Parametric effect priors
-    b[1] ~ dnorm(1,0.01)
+    b[1] ~ dnorm(1,0.001)
     
     ## prior for s(x,y)... 
     K1 <- S1[1:nspline1,1:nspline1] * lambda[1]  + S1[1:nspline1,nspline:nspline2] * lambda[2]
@@ -183,33 +149,25 @@ cat("
     #Line transect data:
     
     # MODEL GROUP SIZE
-    intercept.groupsize ~ dnorm(0,0.01)
-    
-    #effect of covariates
-    gs.forest ~ dnorm(0,0.01)#no effect
-    gs.military ~ dnorm(0,0.01)#no effect
-    gs.field ~ dnorm(0,0.01)#no effect
+    intercept.groupsize ~ dnorm(0,0.001)
 
     #fixed year effect
     for(i in 1:2){
-      yearEffect.gs[i] ~ dnorm(0,0.01)
+      yearEffect.gs[i] ~ dnorm(0,0.001)
     }
     yearEffect.gs[3] <- 0
-    
+
     #random grid effect
-    for(i in 1:n.sites){
+    for(i in 1:n.Transect){
       gridEffect[i] ~ dnorm(0,grid.gs.tau)
     }
     grid.gs.tau <- pow(grid.gs.sd,-2)
-    grid.gs.sd ~ dunif(0,10)
+    grid.gs.sd ~ dunif(0,100)
     
     for(i in 1:n.Detections){
       d.Groupsize[i] ~ dpois(exp.GroupSize[i])
       log(exp.GroupSize[i]) <- intercept.groupsize + 
-                                  #gs.forest * d.Forest[i] + 
-                                  #gs.military * d.Military[i] + 
-                                  #gs.field * d.Field[i] +
-                                  gridEffect[detectionGrids[i]] +
+                                  gridEffect[detectionSites[i]] +
                                   yearEffect.gs[d.Year[i]]
     }
 
@@ -221,7 +179,7 @@ cat("
       grp.jt[ty.combos[k,1], ty.combos[k,2]] <- sum(grp.size[,k])/max(1,sum(TransYrIdx[,k]))  
     }
     
-    for(j in 1:n.sites){
+    for(j in 1:n.Transect){
       for(t in 1:n.Yrs){
         grp[j,t] <- ifelse(equals(grp.jt[j,t],0),exp(intercept.groupsize+
                                                       yearEffect.gs[t]+
@@ -232,8 +190,9 @@ cat("
     # MODEL NUMBER OF GROUPS DETECTED
     
     # PRIORS
+
     #fit model
-    for (j in 1:n.sites){
+    for (j in 1:n.Transect){
       for (t in 1:n.Yrs){
         n[j,t] ~ dpois(nHat[j,t]) 
     
@@ -242,21 +201,20 @@ cat("
     
         #relate fraction seen to fraction available in whole cell
         nHat[j,t] <- expN[j,t]*surveyArea[j,t]
-        log(expN[j,t]) <- abund.effect[j] + yearEffect[t]
+        log(expN[j,t]) <-  abund.effect[j] +yearEffect[t]
       }
     }
-
+    
     #fixed year effect
     for(i in 1:2){
       yearEffect[i] ~ dnorm(0,0.01)
     }
     yearEffect[3] <- 0
     
-
     #predict density (number of indivdiuals per grid cell) for all sites 
     #using the abundance effect and average group size
     #and the intercept of the line transect model for number of groups
-    for(j in 1:n.sites){
+    for(j in 1:n.Transect){
         for(t in 1:n.Yrs){
           Density.jt[j,t] <- expN[j,t] * grp[j,t]
         }
@@ -293,29 +251,20 @@ cat("
     
     #Priors
     b.d.0 ~ dunif(4,5)
-    b.group.size ~ dnorm(0,0.01)
-    b.field ~ dnorm(0,0.01)
-    b.forest ~ dnorm(0,0.01)
-    b.military ~ dnorm(0,0.01)
 
     #random transect effect
     for(i in 1:n.d.transectId){
-    random.transect[i] ~ dnorm(0,random.transect.tau)
+      random.transect[i] ~ dnorm(0,random.transect.tau)
     }
     random.transect.tau <- pow(random.transect.sd,-2)
-    random.transect.sd ~ dunif(0,10)
+    random.transect.sd ~ dunif(0,100)
     
     ##### Begin model for *all detections*
     
     for(i in 1:n.Detections){
     
     #MODELS FOR HALF-NORMAL DETECTION PARAMETER SIGMA
-    #mu.df[i] <- b.d.0
     mu.df[i] <- b.d.0 + random.transect[d.transectId[i]] 
-    #mu.df[i] <- b.d.0 + random.transect[d.transectId[i]] +
-              # b.group.size * d.GroupsizeS[i]+
-              #  b.forest * d.Forest[i]+
-              # b.field * d.Field[i]
 
     # estimate of sd and var, given coeffs above
     sig.df[i] <- exp(mu.df[i])
@@ -327,6 +276,7 @@ cat("
     
     # LIKELIHOOD
     # estimate sigma using zeros trick
+    #y[i] ~ dunif(0,W)
     L.f0[i] <- exp(-y[i]*y[i] / (2*sig2.df[i])) * 1/esw[i] #y are the distances
     nlogL.f0[i] <-  -log(L.f0[i])
     zeros.dist[i] ~ dpois(nlogL.f0[i])
@@ -336,15 +286,15 @@ cat("
     for(k in 1:n.TransectYrs){
       for(i in 1:n.Detections){
         grp.ESW[i,k] <- esw[i] * TransYrIdx[i,k]
-    }
+      }
         ESW.jt[ty.combos[k,1], ty.combos[k,2]] <- sum(grp.ESW[,k])/max(1,sum(TransYrIdx[,k]))  
     }
     
     #convert into detection probability 
     mean.esw <- sqrt(pi * pow(exp(b.d.0),2) / 2) 
-    for(j in 1:n.sites){
+    for(j in 1:n.Transect){
       for(t in 1:n.Yrs){
-        ESW[j,t] <- ifelse(equals(ESW.jt[j,t],0),mean.esw,ESW.jt[j,t])
+      ESW[j,t] <- ifelse(equals(ESW.jt[j,t],0),mean.esw,ESW.jt[j,t])
       }
     }
     
@@ -360,16 +310,10 @@ source('/Users/dianabowler/Documents/NINA/methods/models/bugsFunctions.R')
 
 #https://www.r-bloggers.com/spatial-autocorrelation-of-errors-in-jags/
 
-params <- c("random.transect","b.d.0",
-            "b.group.size","b.forest","b.field","b.military","mean.esw",
-            "intercept.year","yearEffect",
-            "intercept.lt","intercept.groupsize",
-            "averagePa","beta.forest","beta.forest2","beta.military",
-            "abund.slope","beta.year",
-            "beta.villages","beta.fields",
-            "alpha.month","theta.water","theta.lure",
-            "gs.forest","gs.military","gs.field","yearEffect.gs",
-            "totDensity","Density","grp","fit","fit.new")
+params <- c("random.transect","b.d.0","mean.esw",
+            "random.transect.sd","intercept.year","yearEffect",
+            "intercept.lt","yearEffect.gs",
+            "avDensity","totDensity","Density")
 
 #inits <- function(){list(sigma=runif(1,80,150))}
 
@@ -380,43 +324,44 @@ out1 <- jags(bugs.data, inits=NULL, params, "combinedModel_grouped_spline.txt", 
 
 print(out1,2)
 traceplot(out1)
-save(out1,file="out1_final_ltonly_allVars.RData")
-save(out1,file="out1_final_ltonly_sig.RData")
-save(out1,file="out1_final_ltonly_onlysig.RData")
-save(out1,file="out1_final_ltonly_spline_inclYear2.RData")
+save(out1,file="out1_final_ltonly_spline.RData")
 
 ########################################################################################
+
+#Plotting predictions
+#load("out1_final_ltonly.RData")
+plot(bugs.data$n,out1$mean$nHat)
+setwd('/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment')
+
+myGridDF3km$fits <- NA
+myGridDF3km$fits[sites.lt]<-out1$mean$Density
+
+#groupSizes[is.na(groupSizes)]<-0
+#groupsizeMeans<-apply(groupSizes,1,mean)
+#myGridDF3km$fits[sites.lt]<-groupsizeMeans
+
+#totalsMeans<-apply(totalsInfo,1,mean)
+#myGridDF3km$fits[sites.lt]<-totalsMeans
 
 myGridDF3km$x <- myGridDF3km$x + medGridDF3km.x
 myGridDF3km$y <- myGridDF3km$y + medGridDF3km.y
 
-#Plotting predictions
-setwd('/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment')
-load("out1_final_ltonly_onlysig.RData")
-myGridDF3km$fits<-log(out1$mean$Density+1)
 predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
-png(file="combinedModel_lt.png")
-plot(predRaster,col=rev(topo.colors(50)),zlim=c(0,5.9))
+predRaster<-mask(predRaster,sws)
+#png(file="combinedModel_grouped_spline_ltonly.png")
+plot(predRaster)
 plot(sws,add=T)
-dev.off()
+#dev.off()
 
-#spline only
-setwd('/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment')
-load("out1_final_ltonly_spline_inclYear2.RData")
-myGridDF3km$fits<-NA
-myGridDF3km$fits[sites.lt]<-log(out1$mean$Density[sites.lt]+1)
-predRaster<-rasterFromXYZ(myGridDF3km[,c("x","y","fits")])
-png(file="combinedModel_lt_spline.png")
-plot(predRaster,col=rev(topo.colors(50)),zlim=c(0,5.9))
-plot(sws,add=T)
-dev.off()
+
+
+#pulling out all coeffients of interest
+coefTable<-data.frame(out1$summary)
+coefTable$Parameter<-row.names(out1$summary)
+save(coefTable,file="coefTable_combinedModel_grouped_spline.RData")
 
 #save similations for Bayesian p-value
 simslistDF<-list(fit=out1$sims.list$fit,fit.new=out1$sims.list$fit.new)
 mean(simslistDF$fit.new>simslistDF$fit)
-#0.3349524, ForestF
-#0.4086667, log Forest
-#0.3629524, Forest
 #########################################################################################
-
 

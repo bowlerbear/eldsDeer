@@ -16,11 +16,11 @@ library(reshape2)
 ###################################################################################################
 
 #get shape file of the Sanctuary
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/MMR layers/ProtectedArea")
+setwd("/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/MMR layers/ProtectedArea")
 sws<-readOGR(dsn=getwd(),layer="WDPA_Aug2017_protected_area_1236-shapefile-polygons")
 
 #get location of transects
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/MMR layers/Updated")
+setwd("/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/MMR layers/Updated")
 transects<-readOGR(getwd(),layer="Transects")
 
 #give them the transect names
@@ -31,7 +31,7 @@ transects$Id[17:24]<-24:17
 
 ######################################################################################################
 
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Camera traps")
+setwd("/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/Camera traps")
 
 ###############
 #station infos#
@@ -55,16 +55,16 @@ stations2016Locations$Year<-2016
 
 #all stations
 locations<-rbind(stations2014Locations,stations2016Locations)
-locations<-subset(locations,!is.na(LATITUDE..N.)&!is.na(LONGITUDE..E.))
+locations<-subset(locations,!is.na(LATITUDE..N.)|!is.na(LONGITUDE..E.))
 
 ###########################################################
 #get forest cover and elevational data at all lat and lons#
 ###########################################################
 locationsSP<-locations
 coordinates(locationsSP)<-c("LONGITUDE..E.","LATITUDE..N.")
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/MMR layers/Updated")
+setwd("/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/MMR layers/Updated")
 top<-raster("MMR_alt.grd")
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/MMR layers/Updated/Hansen")
+setwd("/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/MMR layers/Updated/Hansen")
 forest2000<-raster("Hansen_GFC2015_treecover2000_30N_090E.tif")
 locations$ForestCover<-extract(forest2000,locationsSP)
 locations$Topography<-extract(top,locationsSP)
@@ -79,6 +79,7 @@ locations$CAMERA.ID<-gsub("_","",locations$CAMERA.ID)
 locations$CAMERA.ID<-gsub("_","",locations$CAMERA.ID)
 
 #format dates
+locations$SETUP.DATE<-gsub("des","dec",locations$SETUP.DATE)
 locations$SETUP.DATE<-as.Date(locations$SETUP.DATE,format="%d-%b-%y")
 locations$Month<-month(locations$SETUP.DATE)
 locations$TAKE.DOWN.DATE<-as.Date(locations$TAKE.DOWN.DATE,format="%d-%b-%y")
@@ -105,7 +106,7 @@ locations$HABITAT[locations$HABITAT%in%c("DRY FOREST","EDRY FOREST")]<-"DRY FORE
 
 #reading in each file on the camera trap observations
 #and subsetting to only the elds deer observations
-setwd("C:/Users/diana.bowler/OneDrive - NINA/EldsDeer Population Assessment/Camera traps")
+setwd("/Users/dianabowler/Documents/NINA/EldsDeer Population Assessment/Camera traps")
 deer2014<-read.delim("Data 2014 & 2016 Clean 011216_2014.txt",as.is=T)
 deer2014<-subset(deer2014,Wild.Animals%in%c("Rucervus eldii"))#142
 deer2016<-read.delim("Data 2014 & 2016 Clean 011216_2016.txt",as.is=T)
@@ -171,9 +172,10 @@ surveys$TAKE.DOWN.DATE[is.na(surveys$TAKE.DOWN.DATE)&surveys$Year==2014]<-survey
 surveys$nDays<-as.numeric(surveys$TAKE.DOWN.DATE-surveys$SETUP.DATE)
 
 #for each survey date add the day number
+library(plyr)
 surveys<-ddply(surveys,.(ID),function(x){
   Day=1:max(x$nDays)
-  data.frame(cbind(Day=Day,x))
+  data.frame(Day=Day,x)
 })
 surveys$Date<-surveys$SETUP.DATE+surveys$Day-1
 #the surveys dates can now be merged with the dates when deer were seen
@@ -198,7 +200,10 @@ table(surveys$numberDeer)
 #mostly 0 or 1
 
 #get list of ID with potential operational issues
-probIDs<-locations$ID[locations$CAMERA.OPERATIONAL.TAKE.DOWN%in%c("FALSE","NO","No (Lost")]
+probIDs<-locations$ID[locations$CAMERA.OPERATIONAL.TAKE.DOWN%in%c("No","FALSE","No (Lost")]
+#keep in one from that cell
+#unique(locations[,c("ID","LONGITUDE..E.","LATITUDE..N.")])
+probIDs<-probIDs[-6]
 surveys2<-subset(surveys,ID%in%probIDs)
 sum(surveys2$PA)#nothing was seen at these stations, so remove them
 surveys<-subset(surveys,!ID%in%probIDs)
